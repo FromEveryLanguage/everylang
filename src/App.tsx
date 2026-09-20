@@ -120,7 +120,7 @@ function HomePage() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-100 to-gray-300 dark:from-gray-950 dark:to-gray-900 text-black dark:text-gray-200">
+    <div className="flex flex-col items-center justify-center min-h-screen">
       <h1 className="text-2xl font-bold mb-6 mt-8">
         {s.chooseLayout}
       </h1>
@@ -419,7 +419,7 @@ function LayoutPage({ layout: initialLayout }: { layout: string }) {
   const chromeClass = `transition-opacity duration-300 ${chromeVisible ? "opacity-100" : "opacity-0 pointer-events-none"}`;
 
   return (
-    <div className="flex flex-col md:flex-row h-dvh overflow-hidden relative touch-none bg-gradient-to-br from-gray-100 to-gray-300 dark:from-gray-950 dark:to-gray-900">
+    <div className="flex flex-col md:flex-row h-dvh overflow-hidden relative touch-none">
       <div className={`absolute top-2 right-2 z-10 flex items-center space-x-2 ${chromeClass}`}>
         <ConnectionStatusWidget connectionStatus={connectionStatus} />
       </div>

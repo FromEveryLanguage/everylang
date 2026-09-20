@@ -7,6 +7,15 @@
     overscroll-behavior: none;
   }
 
+  /* The page background lives here, on <html>, and nowhere else. Between the CSS loading
+     and React's first render there is nothing on screen but <html>, and Tailwind's
+     preflight leaves it transparent — so when the root divs owned the background,
+     dark-mode users got a white flash on every navigation. (The color-scheme meta in
+     index.html covers the moments before even this CSS has arrived.) */
+  html {
+    @apply bg-linear-to-br from-gray-100 to-gray-300 dark:from-gray-950 dark:to-gray-900 text-black dark:text-gray-200;
+  }
+
   /* Override some of tailwind's preflight styles */
   ul, ol {
     margin: initial;
