@@ -120,7 +120,7 @@ function HomePage() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen">
+    <div className="flex flex-col items-center justify-center min-h-dvh">
       <h1 className="text-2xl font-bold mb-6 mt-8">
         {s.chooseLayout}
       </h1>
