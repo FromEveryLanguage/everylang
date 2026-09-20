@@ -4,11 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="google" content="notranslate" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Tell the browser we support dark mode before any CSS or JS arrives, so its
+         first paint of the empty page is dark, not the default white canvas. Every nav
+         link is a full page load, so without this dark-mode users see a white flash on
+         each one until React mounts. The <html> background in App.css covers the
+         rest of the gap. -->
+    <meta name="color-scheme" content="light dark" />
     <title>Live Notes</title>
     
     <!-- PWA Meta Tags -->
     <meta name="description" content="Real-time translation webapp">
-    <meta name="theme-color" content="#1f2937">
+    <!-- Browser chrome tint; keep in step with the <html> background in App.css -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f3f4f6">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#030712">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Live Notes">
