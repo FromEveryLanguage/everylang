@@ -113,6 +113,10 @@ npm start
 - Always run `npm install` before building or testing, especially in fresh environments. The build will fail with module resolution errors if dependencies aren't installed.
 - When running tests via tools/agents, use `--no-color` flag to disable ANSI color codes in output.
 - The root `tsconfig.json` is a solution-style config (`files: []` + `references`), so plain `tsc --noEmit -p .` silently checks nothing. Use `npm run typecheck` (or `tsc -b`) to actually type-check.
+- Throwaway scripts that import project deps must live *inside* the repo (delete after):
+  Node resolves `import 'express'` upward from the script's own directory, so a scratchpad
+  outside the tree can't see `node_modules`. And in a `.claude/worktrees/` checkout the SPA
+  catch-all's `sendFile` 404s deep links (it refuses dot-segments in the path), so probe `/`.
 
 ### Swift (macOS Audio Feeder)
 
