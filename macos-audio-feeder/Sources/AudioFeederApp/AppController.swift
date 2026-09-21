@@ -13,6 +13,7 @@ final class AppController: ObservableObject {
     enum Status: Equatable {
         case idle                    // not supposed to be running right now
         case waitingForDevice(String)
+        case resolvingSession        // asking the server which doc we are in (#111)
         case connecting
         case publishing
         case reconnecting            // was publishing; the room dropped and we're coming back
@@ -25,6 +26,7 @@ final class AppController: ObservableObject {
             // reason, and the sentence underneath this line says which reason it is.
             case .idle: return "Idle"
             case let .waitingForDevice(name): return "Waiting for device: \(name)"
+            case .resolvingSession: return "Finding the current session…"
             case .connecting: return "Connecting…"
             case .publishing: return "Publishing"
             case .reconnecting: return "Reconnecting…"
@@ -61,6 +63,14 @@ final class AppController: ObservableObject {
     private var capture: AudioCapture?
     private var publisher: Publisher?
 
+    /// A pipeline start in flight: asking the server which doc we are in, then starting.
+    /// The answer is never stored — it is consumed by the task that fetched it, so there is
+    /// no cached doc id that could go stale. See `SessionClient` for why there is no local
+    /// date formula either.
+    private var startTask: Task<Void, Never>?
+    /// When a live pipeline last asked whether the session had moved (an operator pin).
+    private var lastSessionCheck = Date.distantPast
+
     private var tick: Timer?
     private var retryTimer: Timer?
     private var retryAfter: Date?
@@ -73,7 +83,6 @@ final class AppController: ObservableObject {
 
         Log.controller.notice("""
             launched; server \(self.config.serverURL, privacy: .public), \
-            room \(self.config.resolvedDocID(), privacy: .public), \
             \(self.devices.count, privacy: .public) input device(s)
             """)
 
@@ -157,6 +166,18 @@ final class AppController: ObservableObject {
 
     func refreshDevices() {
         devices = DeviceMonitor.inputDevices()
+    }
+
+    /// What the settings window says about the room, in place of the room name it used to
+    /// compute. Three honest states: an override, the room we are actually in, or not running.
+    var sessionSummary: String {
+        if let override = SessionClient.normalizedOverride(config.docIDOverride) {
+            return "Will publish to room: \(override) — this override outranks the server."
+        }
+        if let docID = publisher?.docID {
+            return "Publishing to room: \(docID) — the server's current session."
+        }
+        return "The room is whatever session the server says is current when a run starts."
     }
 
     /// The currently configured device, if connected.
@@ -244,11 +265,88 @@ final class AppController: ObservableObject {
         // dead — was indistinguishable from a healthy one and wedged here forever. Checking
         // both halves makes this tick self-healing even if a publisher callback is missed
         // entirely (issue #97).
-        if !isPipelineRunning {
-            teardown()
-            startPipeline(device: device)
+        if isPipelineRunning {
+            recheckSessionIfDue(now)
+            return
+        }
+        guard startTask == nil else { return }   // already asking; the answer starts the pipeline
+        teardown()
+        startPipeline(device: device)
+    }
+
+    // MARK: - The current session (#111)
+
+    /// Ask the server which doc we are in, then start the capture→publish pipeline into it.
+    ///
+    /// The ask is the first step of starting, not a value kept on the controller: the same
+    /// task that gets the answer acts on it, so nothing can start on an answer that has aged
+    /// — a Mac that slept through the gap between two Sunday windows wakes up and *asks*,
+    /// rather than opening the mic in last week's doc. Same shape as `slide_sync_runtime.py`,
+    /// which resolves immediately before every connect.
+    ///
+    /// No local fallback, deliberately: the same server issues the LiveKit token, so a server
+    /// we can't reach is a run that couldn't have started anyway. Say which failure it is
+    /// instead of publishing into a doc nobody chose, and land in the existing backoff.
+    private func startPipeline(device: AudioInputDevice) {
+        status = .resolvingSession
+        let client = SessionClient(serverURL: config.serverURL)
+        let override = config.docIDOverride
+        startTask = Task { @MainActor [weak self] in
+            // Cancelled means `teardown` already moved on — and has already cleared this
+            // reference, possibly in favour of a newer task. Only clear it when it is ours.
+            do {
+                let resolved = try await client.resolve(override: override)
+                guard !Task.isCancelled, let self else { return }
+                self.startTask = nil
+                self.lastSessionCheck = Date()   // this *was* the check; the next is a minute out
+                Log.controller.notice(
+                    "session: \(resolved.docID, privacy: .public) (\(resolved.origin, privacy: .public))")
+                self.startPipeline(device: device, docID: resolved.docID)
+            } catch {
+                guard !Task.isCancelled, let self else { return }
+                self.startTask = nil
+                Log.controller.error(
+                    "cannot resolve the current session: \(String(describing: error), privacy: .public)")
+                self.status = .error("Can't reach \(self.config.serverURL): \(error)")
+                self.scheduleRetry()
+            }
         }
     }
+
+    /// While publishing, ask about once a minute whether the session has moved out from under
+    /// us — an operator pin, most likely — and rebuild into the new room if it has.
+    ///
+    /// A pin moves the notes, the slides, the transcripts and every listener; a microphone
+    /// left behind in the old room splits the service in half, which is worse than a whole
+    /// service filed under the wrong date. Same cadence as `slide_sync_runtime.py`, and the
+    /// same rule for a failed check: ignore it. A stale doc answer costs a minute; dropping
+    /// the pipeline costs the broadcast.
+    ///
+    /// The override is part of the question, so a doc id typed in the settings window takes
+    /// effect here too, within the same minute.
+    private func recheckSessionIfDue(_ now: Date) {
+        guard now.timeIntervalSince(lastSessionCheck) >= Self.sessionRecheckInterval else { return }
+        lastSessionCheck = now
+        let client = SessionClient(serverURL: config.serverURL)
+        let override = config.docIDOverride
+        Task { @MainActor [weak self] in
+            guard let resolved = try? await client.resolve(override: override),
+                  let self, let current = self.publisher?.docID, current != resolved.docID
+            else { return }
+            Log.controller.notice("""
+                session moved: \(current, privacy: .public) -> \(resolved.docID, privacy: .public) \
+                (\(resolved.origin, privacy: .public)); rebuilding the pipeline
+                """)
+            self.teardown()
+            self.evaluate()
+        }
+    }
+
+    /// Matches the Proclaim service's `session_recheck_interval` — a pin has to reach a
+    /// feeder that is already on air, not only the next run to start.
+    private static let sessionRecheckInterval: TimeInterval = 60
+
+    // MARK: - Pipeline
 
     /// True only while *both* halves of the capture→publish pipeline are alive. Anything else
     /// has to be torn down and rebuilt — a `Publisher` cannot be restarted in place.
@@ -260,8 +358,7 @@ final class AppController: ObservableObject {
         }
     }
 
-    private func startPipeline(device: AudioInputDevice) {
-        let docID = config.resolvedDocID()
+    private func startPipeline(device: AudioInputDevice, docID: String) {
         Log.controller.notice("""
             starting pipeline: device \(device.name, privacy: .public) \
             (\(device.inputChannelCount, privacy: .public) ch, uid \(device.uid, privacy: .public)), \
@@ -346,6 +443,8 @@ final class AppController: ObservableObject {
     }
 
     private func teardown() {
+        startTask?.cancel()
+        startTask = nil
         capture?.stop()
         capture = nil
         publisher?.stop()

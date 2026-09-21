@@ -16,19 +16,33 @@ struct ConfigView: View {
                 // holding a value looks exactly like a label holding a value — nothing says
                 // "you can type here". `.roundedBorder` puts the box back.
                 Section("Server") {
-                    TextField("Server URL", text: $controller.config.serverURL)
-                    TextField("Doc id (blank = today's doc-YYYY-MM-DD)",
-                              text: Binding(
-                                get: { controller.config.docIDOverride ?? "" },
-                                set: { controller.config.docIDOverride = $0.isEmpty ? nil : $0 }))
-                    Text("Will publish to room: \(controller.config.resolvedDocID())")
+                    // These three commit on Return or when the field loses focus, not per
+                    // keystroke like a plain `TextField` binding would. A partial value here
+                    // is not a harmless intermediate state: a config write per character was
+                    // a saved config and a re-evaluation per character, and the doc id is a
+                    // room name a live pipeline follows (`recheckSessionIfDue`), so typing
+                    // `doc-2026-08-30` must not be seen as `d`, `do`, `doc`…
+                    CommittedTextField("Server URL", text: $controller.config.serverURL)
+                    CommittedTextField("Doc id (blank = whichever session the server says is current)",
+                                       text: optionalText($controller.config.docIDOverride))
+                    // Not a prediction any more. The server owns which doc is the current
+                    // session (#111); this app asks, and says what it was told. Claiming a
+                    // room here would be the private answer presented as fact that issue
+                    // was about — and the answer can move mid-run, when an operator pins.
+                    Text(controller.sessionSummary)
                         .font(.caption).foregroundStyle(.secondary)
-                    SecureField("Write key (must match the server)",
-                                text: Binding(
-                                    get: { controller.config.writeKey ?? "" },
-                                    set: { controller.config.writeKey = $0.isEmpty ? nil : $0 }))
+                    CommittedTextField("Write key (must match the server)",
+                                       text: optionalText($controller.config.writeKey), secure: true)
                     Text("Required to take the microphone.")
                         .font(.caption).foregroundStyle(.secondary)
+                    // Says what a mid-service edit does, since this window is where an
+                    // operator ends up when something is on the wrong doc.
+                    Text("""
+                         A doc id typed here reaches a running feeder within about a minute. \
+                         The server URL and write key apply on its next connection.
+                         """)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Section("Input") {
@@ -92,6 +106,13 @@ struct ConfigView: View {
             .padding()
         }
         .frame(width: 420, height: 560)
+    }
+
+    /// An optional config string as a text field value: blank and nil are the same thing.
+    private func optionalText(_ binding: Binding<String?>) -> Binding<String> {
+        Binding(
+            get: { binding.wrappedValue ?? "" },
+            set: { binding.wrappedValue = $0.isEmpty ? nil : $0 })
     }
 
     private var maxChannel: Int {
@@ -233,5 +254,59 @@ private struct MinuteField: View {
     private func commit() {
         if let m = Schedule.parseHHMM(text) { minute = m }
         text = Schedule.formatHHMM(minute)
+    }
+}
+
+/// A text field that writes its binding on commit — Return, or the field losing focus —
+/// rather than on every keystroke.
+///
+/// Same reason as `MinuteField`, generalized: a partial value is not a harmless intermediate
+/// state when the binding is a config write, and for the doc id it is a room name a live
+/// pipeline follows. The local text is authoritative while the field has focus; outside
+/// edits to the binding win only when it doesn't.
+private struct CommittedTextField: View {
+    let title: String
+    @Binding var text: String
+    let secure: Bool
+
+    @State private var draft: String = ""
+    @FocusState private var focused: Bool
+
+    init(_ title: String, text: Binding<String>, secure: Bool = false) {
+        self.title = title
+        self._text = text
+        self.secure = secure
+    }
+
+    var body: some View {
+        field
+            .focused($focused)
+            .onSubmit { commit() }
+            .onChange(of: focused) { _, isFocused in
+                if !isFocused { commit() }
+            }
+            .onChange(of: text) { _, new in
+                if !focused { draft = new }
+            }
+            .onAppear { draft = text }
+            // Closing the window with the field still focused doesn't always report the
+            // focus loss; don't let the last edit vanish with it.
+            .onDisappear { commit() }
+    }
+
+    @ViewBuilder private var field: some View {
+        if secure {
+            SecureField(title, text: $draft)
+        } else {
+            TextField(title, text: $draft)
+        }
+    }
+
+    private func commit() {
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed != text { text = trimmed }
+        // Show what was actually stored, so the trimming is visible rather than a surprise
+        // the next time this window opens.
+        draft = text
     }
 }
