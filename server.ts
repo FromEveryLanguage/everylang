@@ -310,7 +310,17 @@ app.use(compression());
 // name the current hashes, so they must always be revalidated — an ETag 304 when nothing
 // changed — or a deploy stays invisible until the browser feels like refetching them.
 // Old bundles never need invalidating: a new index.html simply stops asking for them.
-app.use('/assets', express.static('dist/assets', { immutable: true, maxAge: '1y' }));
+// The year is granted per file, only to names carrying Vite's `-[hash]` suffix: anything
+// else that ends up under /assets (a stray file in public/assets/, a renamed output) would
+// otherwise be pinned in every browser until it happened to change name.
+const VITE_HASHED_NAME = /-[A-Za-z0-9_-]{8}\.[a-z0-9]+(?:\.map)?$/;
+app.use('/assets', express.static('dist/assets', {
+  setHeaders: (res, filePath) => {
+    if (VITE_HASHED_NAME.test(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  },
+}));
 app.use(express.static("dist", {
   setHeaders: (res, filePath) => {
     if (/(?:^|\/)(?:index\.html|sw\.js)$/.test(filePath)) {
