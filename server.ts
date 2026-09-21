@@ -305,7 +305,19 @@ const app = express();
 // `compression` negotiates br > gzip > deflate from Accept-Encoding, and skips types that
 // are already compressed, so the cached mp3s under /audio-cache pass through untouched.
 app.use(compression());
-app.use(express.static("dist"));
+// Vite content-hashes everything under /assets, so a URL there *is* its content: cache it
+// for a year and never revalidate. The unhashed entry points (index.html, sw.js) are what
+// name the current hashes, so they must always be revalidated — an ETag 304 when nothing
+// changed — or a deploy stays invisible until the browser feels like refetching them.
+// Old bundles never need invalidating: a new index.html simply stops asking for them.
+app.use('/assets', express.static('dist/assets', { immutable: true, maxAge: '1y' }));
+app.use(express.static("dist", {
+  setHeaders: (res, filePath) => {
+    if (/(?:^|\/)(?:index\.html|sw\.js)$/.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  },
+}));
 app.use(express.json());
 app.use('/audio-cache', express.static(AUDIO_CACHE_DIR));
 
@@ -996,7 +1008,7 @@ app.get('/*splat', (req, res, next) => {
   if (req.path.match(/\.[a-zA-Z0-9]+$/)) {
     return next();
   }
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'), { headers: { 'Cache-Control': 'no-cache' } });
 });
 
 // Last middleware, after every route: Express dispatches errors *forward* from the layer
