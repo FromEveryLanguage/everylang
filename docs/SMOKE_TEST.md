@@ -16,6 +16,8 @@ an incident happens that this list would not have caught, add a line.
 - [ ] Deployed build is the intended SHA (`docker compose logs` banner / deploy script output).
 - [ ] Open the editor URL (`/...#editor`) on one device, a viewer URL on a second device
       (ideally a phone on cellular, not the LAN).
+- [ ] Open the app from an *already-installed* iOS home-screen icon; it loads, not a blank
+      page (the service worker once turned one failed fetch into a permanent blank, #161).
 
 ## 1. Collaboration & editor
 
