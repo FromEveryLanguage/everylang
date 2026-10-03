@@ -117,7 +117,8 @@ const SLIDE_TRANSLATION_CONTEXT = process.env.SLIDE_TRANSLATION_CONTEXT ||
   'literal/liturgical rendering. Aim for clear, natural, reverent wording in each target language.';
 
 const ySweetConnectionString = getEnvOrCrash("YSWEET_CONNECTION_STRING");
-console.log('Y-Sweet Connection String:', ySweetConnectionString);
+// The userinfo part of a ys:// string is Y-Sweet's server token, a full-access credential.
+console.log('Y-Sweet Connection String:', ySweetConnectionString.replace(/\/\/[^@/]*@/, '//***@'));
 const documentManager = new DocumentManager(ySweetConnectionString);
 
 const elevenLabsClient = new ElevenLabsClient({
