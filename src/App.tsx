@@ -418,8 +418,11 @@ function LayoutPage({ layout: initialLayout }: { layout: string }) {
   // taps meant for whatever's underneath (transcript text, slide content, ...).
   const chromeClass = `transition-opacity duration-300 ${chromeVisible ? "opacity-100" : "opacity-0 pointer-events-none"}`;
 
+  // h-screen is the fallback for browsers without dvh (older Android Chrome). Without a
+  // height, the panes never get a fixed height to scroll inside, and touch-none here stops
+  // the page itself from scrolling, so the content is stuck.
   return (
-    <div className="flex flex-col md:flex-row h-dvh overflow-hidden relative touch-none">
+    <div className="flex flex-col md:flex-row h-screen supports-[height:100dvh]:h-dvh overflow-hidden relative touch-none">
       <div className={`absolute top-2 right-2 z-10 flex items-center space-x-2 ${chromeClass}`}>
         <ConnectionStatusWidget connectionStatus={connectionStatus} />
       </div>
