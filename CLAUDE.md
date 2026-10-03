@@ -63,6 +63,10 @@ reads them, which is where they stay correct.
 - *Model and prompt overrides* (`GEMINI_STRONG_MODEL`, `SLIDE_TRANSLATION_CONTEXT`) — the
   stronger model used for whole-item slide drafting via `/api/translateItem`, and the general
   context injected into every slide-translation prompt. Both defaulted in `server.ts`.
+- *Landing page* (`SITE_NAME`, `SITE_LANGUAGES`) — which language cards the front door
+  offers, in order; served to the client via `/api/config`. Destinations are derived from
+  capabilities in [src/siteLanguages.ts](src/siteLanguages.ts), and an unservable code stops
+  the boot. See [docs/LANDING_PAGE.md](docs/LANDING_PAGE.md).
 - *Storage paths* (`SLIDE_LIBRARY_PATH`) — the reviewed-translation library; defaults inside
   the audio-cache dir so it rides the existing Docker volume.
 - *Telemetry* (`VITE_PUBLIC_POSTHOG_KEY`, `VITE_PUBLIC_POSTHOG_HOST`) — genuinely optional.
@@ -503,7 +507,7 @@ Details in [docs/PROCLAIM_SERVICE_SETUP.md](docs/PROCLAIM_SERVICE_SETUP.md#autom
 
 #### PostHog Config Endpoint
 
-`GET /api/config` on the Express server returns `{ posthogKey, posthogHost }` — used by the install script and any other service that needs to report to the same PostHog project without separately managing the key.
+`GET /api/config` on the Express server returns `posthogKey`/`posthogHost` — used by the install script and any other service that needs to report to the same PostHog project without separately managing the key — plus the landing page's per-deployment settings, which `SessionGate` fetches alongside the current session ([src/siteConfig.ts](src/siteConfig.ts)).
 
 ### Layout System
 
