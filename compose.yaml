@@ -1,7 +1,7 @@
 services:
   y-sweet:
     image: node:24-slim
-    command: ["npx", "y-sweet@latest", "serve", "/data"]
+    command: ["npx", "y-sweet@0.9.1", "serve", "/data"]
     ports:
       - "5007:8080"
     volumes:
