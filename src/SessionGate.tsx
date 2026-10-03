@@ -51,7 +51,7 @@ export function SessionGate({ children }: { children: ReactNode }) {
   if (state.status === 'ready') return <>{children}</>;
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6">
+    <div className="min-h-dvh flex items-center justify-center p-6">
       {state.status === 'loading' ? (
         <p className="text-sm text-gray-600 dark:text-gray-400">{s.sessionResolving}</p>
       ) : (

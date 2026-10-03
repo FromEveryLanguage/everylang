@@ -317,7 +317,7 @@ export function StatusView({
   const placeholderClass = PLACEHOLDER_CLASS;
 
   return (
-    <div className="min-h-screen overflow-auto">
+    <div className="min-h-dvh overflow-auto">
       <div className="max-w-2xl mx-auto px-4 py-8 flex flex-col gap-6">
         <header className="flex items-baseline justify-between gap-2">
           <h1 className="text-2xl font-bold">{s.statusTitle}</h1>
