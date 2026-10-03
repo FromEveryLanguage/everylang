@@ -126,11 +126,6 @@ export interface AppStrings {
   statusUpdatePending: string;
 
   // Layout diagram component labels
-  componentSourceText: string;
-  componentTranslatedText: string;
-  componentBilingual: string;
-  componentCurrentSlide: string;
-  componentListen: string;
 
   // Slide translation review
   slideReviewTitle: string;
@@ -183,7 +178,6 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     disconnected: 'Disconnected',
     translation: 'Translation',
     bilingual: 'Bilingual',
-      componentListen: 'Listen',
     layoutEverything: 'Everything',
     decreaseFontSize: 'Decrease font size',
     increaseFontSize: 'Increase font size',
@@ -270,10 +264,6 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptSource: 'source',
     statusTranscriptNoUpdates: 'No updates since page load',
     statusUpdatePending: 'Update pending — restart the service',
-    componentSourceText: 'Source Text',
-    componentTranslatedText: 'Translated Text',
-    componentBilingual: 'Bilingual View',
-    componentCurrentSlide: 'Current Slide',
     slideReviewTitle: 'Slide Translation Review',
     slidesInputLabel: 'Item slides (separate slides with a blank line or --)',
     loadOnAirItem: 'Load on-air item',
@@ -318,7 +308,6 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     disconnected: 'D\u00e9connect\u00e9',
     translation: 'Traduction',
     bilingual: 'Bilingue',
-      componentListen: 'Écouter',
     layoutEverything: 'Tout',
     decreaseFontSize: 'Diminuer la taille du texte',
     increaseFontSize: 'Augmenter la taille du texte',
@@ -405,10 +394,6 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptSource: 'source',
     statusTranscriptNoUpdates: 'Aucune mise à jour depuis le chargement de la page',
     statusUpdatePending: 'Mise à jour en attente — redémarrez le service',
-    componentSourceText: 'Texte source',
-    componentTranslatedText: 'Texte traduit',
-    componentBilingual: 'Vue bilingue',
-    componentCurrentSlide: 'Diapositive actuelle',
     slideReviewTitle: 'Révision des traductions de diapositives',
     slidesInputLabel: 'Diapositives de l’élément (séparez par une ligne vide ou --)',
     loadOnAirItem: 'Charger l’élément à l’antenne',
@@ -453,7 +438,6 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     disconnected: 'Desconectado',
     translation: 'Traducci\u00f3n',
     bilingual: 'Biling\u00fce',
-      componentListen: 'Escuchar',
     layoutEverything: 'Todo',
     decreaseFontSize: 'Disminuir tama\u00f1o de fuente',
     increaseFontSize: 'Aumentar tama\u00f1o de fuente',
@@ -540,10 +524,6 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptSource: 'fuente',
     statusTranscriptNoUpdates: 'Sin actualizaciones desde que se cargó la página',
     statusUpdatePending: 'Actualización pendiente — reinicie el servicio',
-    componentSourceText: 'Texto fuente',
-    componentTranslatedText: 'Texto traducido',
-    componentBilingual: 'Vista biling\u00fce',
-    componentCurrentSlide: 'Diapositiva actual',
     slideReviewTitle: 'Revisi\u00f3n de traducciones de diapositivas',
     slidesInputLabel: 'Diapositivas del elemento (separe con una l\u00ednea en blanco o --)',
     loadOnAirItem: 'Cargar elemento al aire',
@@ -588,7 +568,6 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     disconnected: 'Dekonekte',
     translation: 'Tradiksyon',
     bilingual: 'Bileng',
-      componentListen: 'Koute',
     layoutEverything: 'Tout bagay',
     decreaseFontSize: 'Diminye gw\u00f2s\u00e8 l\u00e8t',
     increaseFontSize: 'Ogmante gw\u00f2s\u00e8 l\u00e8t',
@@ -675,10 +654,6 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptSource: 'sous',
     statusTranscriptNoUpdates: 'Pa gen mizajou depi paj la chaje',
     statusUpdatePending: 'Gen yon mizajou k ap tann — rekòmanse sèvis la',
-    componentSourceText: 'Teks sous',
-    componentTranslatedText: 'Teks tradui',
-    componentBilingual: 'Vi Bileng',
-    componentCurrentSlide: 'Diapozitiv aktyèl',
     slideReviewTitle: 'Revizyon Tradiksyon Diapozitiv',
     slidesInputLabel: 'Diapozitiv eleman an (separe ak yon liy vid oswa --)',
     loadOnAirItem: 'Chaje eleman k ap pase a',

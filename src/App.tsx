@@ -247,6 +247,22 @@ function PagePart({ componentStr, onReplace }: { componentStr: string; onReplace
 }
 
 // Layout page: render the selected layout from URL
+/**
+ * The layout URL grammar: `|` separates columns, `,` stacks panes within a column.
+ * "translatedText-French,currentSlide|listen-fr" => [["translatedText-French", "currentSlide"], ["listen-fr"]]
+ *
+ * Columns sit side by side on a wide screen and stack on a narrow one. This is the
+ * definition; docs/LAYOUT_URLS.md has worked examples for people building a URL by hand.
+ */
+function parseLayoutString(layoutStr: string | undefined): string[][] {
+  if (!layoutStr) return [];
+  return layoutStr.split("|").map(col => col.split(","));
+}
+
+function formatLayoutString(columns: string[][]): string {
+  return columns.map(col => col.join(",")).join("|");
+}
+
 function LayoutPage({ layout: initialLayout }: { layout: string }) {
   const connectionStatus = useConnectionStatus();
   const s = useStrings();
@@ -254,18 +270,12 @@ function LayoutPage({ layout: initialLayout }: { layout: string }) {
   // Track current layout in state so we can update it when URL changes
   const [layout, setLayout] = useState(initialLayout);
 
-  // Parse layout from URL: e.g. "sourceText,translatedText-French|currentSlide" => [["sourceText", "translatedText-French"], ["currentSlide"]]
-  function parseLayoutString(layoutStr: string | undefined): string[][] {
-    if (!layoutStr) return [];
-    return layoutStr.split("|").map(row => row.split(","));
-  }
-
-  function replaceComponent(rowIdx: number, colIdx: number, newName: string) {
+  function replaceComponent(colIdx: number, paneIdx: number, newName: string) {
     const parsedLayout = parseLayoutString(layout);
-    const newLayout = parsedLayout.map((row, r) =>
-      row.map((component, c) => (r === rowIdx && c === colIdx) ? newName : component)
+    const newLayout = parsedLayout.map((col, c) =>
+      col.map((component, p) => (c === colIdx && p === paneIdx) ? newName : component)
     );
-    const newLayoutStr = newLayout.map(row => row.join(",")).join("|");
+    const newLayoutStr = formatLayoutString(newLayout);
     const currentSearch = window.location.search;
     const currentHash = window.location.hash;
     window.history.replaceState(null, '', `/${newLayoutStr}${currentSearch}${currentHash}`);

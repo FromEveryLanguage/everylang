@@ -516,8 +516,8 @@ The UI uses a **URL-based layout system** (`PagePart` in [App.tsx](src/App.tsx) 
 - Layouts are encoded in the URL path: `/sourceText|bilingual-French`
 - Format: **`|` separates columns, `,` stacks panes within a column.** On a wide screen the
   `|` groups sit side by side (`flex-row`) and each group's `,` members stack (`flex-col`);
-  narrow screens stack the columns too. `LayoutDiagram.tsx` states the same shape — "a 2D
-  array: columns of rows" — and is the thing to read if this is ever in doubt.
+  narrow screens stack the columns too. `parseLayoutString` in `App.tsx` is the definition;
+  [docs/LAYOUT_URLS.md](docs/LAYOUT_URLS.md) has worked examples.
 - Components (the authoritative list is the `PagePart` branch chain in `App.tsx`; this is a
   summary and can fall behind it):
   - `sourceText` — the block editor + translation controls
