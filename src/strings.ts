@@ -18,14 +18,9 @@ export interface AppStrings {
   bilingual: string;
 
   // Home page
-  chooseLayout: string;
-  chooseLanguage: string;
 
   // Layout names
-  layoutSlideAndTranslation: string;
-  layoutBilingualView: string;
   layoutEverything: string;
-  layoutSlideAndListen: string;
 
   // Font size controls
   decreaseFontSize: string;
@@ -131,11 +126,6 @@ export interface AppStrings {
   statusUpdatePending: string;
 
   // Layout diagram component labels
-  componentSourceText: string;
-  componentTranslatedText: string;
-  componentBilingual: string;
-  componentCurrentSlide: string;
-  componentListen: string;
 
   // Slide translation review
   slideReviewTitle: string;
@@ -163,6 +153,23 @@ export interface AppStrings {
   selectItemLabel: string;
   sourceChangedWarning: string;
   agentThinking: string;
+  // Landing page (issue #133). Card subtitles render in the *card's* language, not the
+  // page's, so a Spanish speaker on an English phone reads "Diapositivas…" under Español.
+  landingTagline: string;
+  landingCardSource: string;
+  landingCardSlidesAndAudio: string;
+  /** `{lang}` is the stand-in audio language, named in this locale. */
+  landingCardSlidesStandInAudio: string;
+  landingCardSlidesOnly: string;
+  landingCardAudioOnly: string;
+  landingAnotherLanguage: string;
+  landingBack: string;
+  landingSearch: string;
+  /** `{langs}` is the slide-translation languages, named in this locale. */
+  landingAudioOnlyFootnote: string;
+  landingHeadphones: string;
+  landingNotesTitle: string;
+  landingTeam: string;
 }
 
 export const strings: Record<SupportedLocale, AppStrings> = {
@@ -171,12 +178,6 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     disconnected: 'Disconnected',
     translation: 'Translation',
     bilingual: 'Bilingual',
-    chooseLayout: 'Choose Layout',
-    chooseLanguage: 'Language',
-    layoutSlideAndTranslation: 'Slide and Translation',
-    layoutBilingualView: 'Bilingual View',
-    layoutSlideAndListen: 'Slide and Listen',
-      componentListen: 'Listen',
     layoutEverything: 'Everything',
     decreaseFontSize: 'Decrease font size',
     increaseFontSize: 'Increase font size',
@@ -263,10 +264,6 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptSource: 'source',
     statusTranscriptNoUpdates: 'No updates since page load',
     statusUpdatePending: 'Update pending — restart the service',
-    componentSourceText: 'Source Text',
-    componentTranslatedText: 'Translated Text',
-    componentBilingual: 'Bilingual View',
-    componentCurrentSlide: 'Current Slide',
     slideReviewTitle: 'Slide Translation Review',
     slidesInputLabel: 'Item slides (separate slides with a blank line or --)',
     loadOnAirItem: 'Load on-air item',
@@ -292,18 +289,25 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     selectItemLabel: 'Service item',
     sourceChangedWarning: 'Source slides changed since this was translated.',
     agentThinking: 'Agent is working…',
+    landingTagline: 'Live translation for today\'s service. Pick your language.',
+    landingCardSource: 'Read along, or listen',
+    landingCardSlidesAndAudio: 'Slides and live audio',
+    landingCardSlidesStandInAudio: 'Slides, with audio in {lang}',
+    landingCardSlidesOnly: 'Slides only',
+    landingCardAudioOnly: 'Live audio and transcript',
+    landingAnotherLanguage: 'Another language',
+    landingBack: 'Back',
+    landingSearch: 'Search',
+    landingAudioOnlyFootnote: 'Live audio and transcript only — slides are translated into {langs}.',
+    landingHeadphones: 'Audio is optional: the transcript appears on its own. To listen, use headphones.',
+    landingNotesTitle: 'Sermon notes',
+    landingTeam: 'Team',
   },
   fr: {
     connecting: 'Connexion\u2026',
     disconnected: 'D\u00e9connect\u00e9',
     translation: 'Traduction',
     bilingual: 'Bilingue',
-    chooseLayout: 'Choisir la mise en page',
-    chooseLanguage: 'Langue',
-    layoutSlideAndTranslation: 'Diapositive et traduction',
-    layoutBilingualView: 'Vue bilingue',
-    layoutSlideAndListen: 'Diapositive et écoute',
-      componentListen: 'Écouter',
     layoutEverything: 'Tout',
     decreaseFontSize: 'Diminuer la taille du texte',
     increaseFontSize: 'Augmenter la taille du texte',
@@ -390,10 +394,6 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptSource: 'source',
     statusTranscriptNoUpdates: 'Aucune mise à jour depuis le chargement de la page',
     statusUpdatePending: 'Mise à jour en attente — redémarrez le service',
-    componentSourceText: 'Texte source',
-    componentTranslatedText: 'Texte traduit',
-    componentBilingual: 'Vue bilingue',
-    componentCurrentSlide: 'Diapositive actuelle',
     slideReviewTitle: 'Révision des traductions de diapositives',
     slidesInputLabel: 'Diapositives de l’élément (séparez par une ligne vide ou --)',
     loadOnAirItem: 'Charger l’élément à l’antenne',
@@ -419,18 +419,25 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     selectItemLabel: 'Élément du service',
     sourceChangedWarning: 'Les diapositives source ont changé depuis cette traduction.',
     agentThinking: 'L’agent travaille…',
+    landingTagline: 'Traduction en direct du culte d\'aujourd\'hui. Choisissez votre langue.',
+    landingCardSource: 'Lire, ou écouter',
+    landingCardSlidesAndAudio: 'Diapositives et audio en direct',
+    landingCardSlidesStandInAudio: 'Diapositives, audio en {lang}',
+    landingCardSlidesOnly: 'Diapositives seulement',
+    landingCardAudioOnly: 'Audio en direct et transcription',
+    landingAnotherLanguage: 'Une autre langue',
+    landingBack: 'Retour',
+    landingSearch: 'Rechercher',
+    landingAudioOnlyFootnote: 'Audio et transcription seulement — les diapositives sont traduites en {langs}.',
+    landingHeadphones: 'L\'audio est facultatif : la transcription s\'affiche seule. Pour écouter, utilisez des écouteurs.',
+    landingNotesTitle: 'Notes du sermon',
+    landingTeam: 'Équipe',
   },
   es: {
     connecting: 'Conectando\u2026',
     disconnected: 'Desconectado',
     translation: 'Traducci\u00f3n',
     bilingual: 'Biling\u00fce',
-    chooseLayout: 'Elegir dise\u00f1o',
-    chooseLanguage: 'Idioma',
-    layoutSlideAndTranslation: 'Diapositiva y traducci\u00f3n',
-    layoutBilingualView: 'Vista biling\u00fce',
-    layoutSlideAndListen: 'Diapositiva y escucha',
-      componentListen: 'Escuchar',
     layoutEverything: 'Todo',
     decreaseFontSize: 'Disminuir tama\u00f1o de fuente',
     increaseFontSize: 'Aumentar tama\u00f1o de fuente',
@@ -517,10 +524,6 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptSource: 'fuente',
     statusTranscriptNoUpdates: 'Sin actualizaciones desde que se cargó la página',
     statusUpdatePending: 'Actualización pendiente — reinicie el servicio',
-    componentSourceText: 'Texto fuente',
-    componentTranslatedText: 'Texto traducido',
-    componentBilingual: 'Vista biling\u00fce',
-    componentCurrentSlide: 'Diapositiva actual',
     slideReviewTitle: 'Revisi\u00f3n de traducciones de diapositivas',
     slidesInputLabel: 'Diapositivas del elemento (separe con una l\u00ednea en blanco o --)',
     loadOnAirItem: 'Cargar elemento al aire',
@@ -546,18 +549,25 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     selectItemLabel: 'Elemento del servicio',
     sourceChangedWarning: 'Las diapositivas de origen cambiaron desde esta traducción.',
     agentThinking: 'El agente está trabajando…',
+    landingTagline: 'Traducción en vivo del culto de hoy. Elija su idioma.',
+    landingCardSource: 'Leer, o escuchar',
+    landingCardSlidesAndAudio: 'Diapositivas y audio en vivo',
+    landingCardSlidesStandInAudio: 'Diapositivas, audio en {lang}',
+    landingCardSlidesOnly: 'Solo diapositivas',
+    landingCardAudioOnly: 'Audio en vivo y transcripción',
+    landingAnotherLanguage: 'Otro idioma',
+    landingBack: 'Volver',
+    landingSearch: 'Buscar',
+    landingAudioOnlyFootnote: 'Solo audio y transcripción — las diapositivas se traducen a: {langs}.',
+    landingHeadphones: 'El audio es opcional: la transcripción aparece sola. Para escuchar, use audífonos.',
+    landingNotesTitle: 'Notas del sermón',
+    landingTeam: 'Equipo',
   },
   ht: {
     connecting: 'Koneksyon\u2026',
     disconnected: 'Dekonekte',
     translation: 'Tradiksyon',
     bilingual: 'Bileng',
-    chooseLayout: 'Chwazi Dispozisyon',
-    chooseLanguage: 'Lang',
-    layoutSlideAndTranslation: 'Diapozitiv ak Tradiksyon',
-    layoutBilingualView: 'Vi Bileng',
-    layoutSlideAndListen: 'Diapozitiv ak \u00c9coute',
-      componentListen: 'Koute',
     layoutEverything: 'Tout bagay',
     decreaseFontSize: 'Diminye gw\u00f2s\u00e8 l\u00e8t',
     increaseFontSize: 'Ogmante gw\u00f2s\u00e8 l\u00e8t',
@@ -644,10 +654,6 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptSource: 'sous',
     statusTranscriptNoUpdates: 'Pa gen mizajou depi paj la chaje',
     statusUpdatePending: 'Gen yon mizajou k ap tann — rekòmanse sèvis la',
-    componentSourceText: 'Teks sous',
-    componentTranslatedText: 'Teks tradui',
-    componentBilingual: 'Vi Bileng',
-    componentCurrentSlide: 'Diapozitiv aktyèl',
     slideReviewTitle: 'Revizyon Tradiksyon Diapozitiv',
     slidesInputLabel: 'Diapozitiv eleman an (separe ak yon liy vid oswa --)',
     loadOnAirItem: 'Chaje eleman k ap pase a',
@@ -673,5 +679,18 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     selectItemLabel: 'Eleman sèvis la',
     sourceChangedWarning: 'Diapozitiv sous yo chanje depi tradiksyon sa a.',
     agentThinking: 'Ajan an ap travay…',
+    landingTagline: 'Tradiksyon an dirèk pou sèvis jodi a. Chwazi lang ou.',
+    landingCardSource: 'Li, oswa koute',
+    landingCardSlidesAndAudio: 'Dyapozitiv ak odyo an dirèk',
+    landingCardSlidesStandInAudio: 'Dyapozitiv, odyo an {lang}',
+    landingCardSlidesOnly: 'Dyapozitiv sèlman',
+    landingCardAudioOnly: 'Odyo an dirèk ak transkripsyon',
+    landingAnotherLanguage: 'Yon lòt lang',
+    landingBack: 'Retounen',
+    landingSearch: 'Chèche',
+    landingAudioOnlyFootnote: 'Odyo ak transkripsyon sèlman — dyapozitiv yo tradui an {langs}.',
+    landingHeadphones: 'Odyo a pa obligatwa: transkripsyon an parèt pou kont li. Pou koute, sèvi ak ekoutè.',
+    landingNotesTitle: 'Nòt prèch la',
+    landingTeam: 'Ekip',
   },
 };

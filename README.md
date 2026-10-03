@@ -77,6 +77,6 @@ This is a live translation application for presentations/talks. It provides:
 - AI-powered translation (Google Gemini)
 - Text-to-speech output (ElevenLabs)
 - Collaborative editing (Y-Sweet/Yjs)
-- Multiple layout configurations
+- Multiple layout configurations, chosen by URL — see [docs/LAYOUT_URLS.md](docs/LAYOUT_URLS.md)
 
 See [CLAUDE.md](CLAUDE.md) for detailed architecture and development information.

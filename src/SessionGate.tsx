@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { resolveCurrentSession } from './getDocId';
+import { resolveSiteConfig } from './siteConfig';
 import { useStrings } from './useLocale';
 
 type GateState = { status: 'loading' } | { status: 'ready' } | { status: 'error'; message: string };
@@ -25,7 +26,9 @@ export function SessionGate({ children }: { children: ReactNode }) {
     let active = true;
     const resolve = async () => {
       try {
-        await resolveCurrentSession();
+        // The site config (landing-page languages, issue #133) rides along in parallel,
+        // so it costs no extra round trip, and fails into this same honest screen.
+        await Promise.all([resolveCurrentSession(), resolveSiteConfig()]);
         if (active) setState({ status: 'ready' });
       } catch (error: unknown) {
         console.error('[session] could not resolve the current session', error);
