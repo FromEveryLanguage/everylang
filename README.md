@@ -1,7 +1,6 @@
 # To set up
 
 - Copy `template-.env` to `.env`
-- Get a [y-sweet account](https://jamsocket.com/) (free is fine). Put the connection string in `.env` as `YSWEET_CONNECTION_STRING`.
 - Get a Gemini API key and add it to `.env` as `GEMINI_API_KEY`.
 - Get an ElevenLabs API key and add it to `.env` as `ELEVENLABS_API_KEY`.
 - Run `npm install` to install packages.
@@ -37,6 +36,11 @@ npm start
 ```
 
 ## Deployment
+
+Both compose setups run their own Y-Sweet with auth on, and refuse to start without
+`Y_SWEET_AUTH` and `Y_SWEET_SERVER_TOKEN` in `.env` (generate them as a pair; see
+`template-.env`). Compose builds the app's connection string from the token, so
+`YSWEET_CONNECTION_STRING` in `.env` is ignored there.
 
 ### Local dev with Docker
 
