@@ -138,3 +138,34 @@ async def test_one_connection_pool_for_the_whole_run_and_closed_after():
     assert len(requests) == 3
     assert client.is_closed
     assert pusher._client is None
+
+
+async def test_on_air_since_is_set_on_going_on_air_kept_while_on_and_cleared_off():
+    server = FakeServer()
+    pusher = HttpSnapshotPusher(FakeFeed([off_air_snap()]), "http://s", post=server)
+    await pusher.push(off_air_snap())
+    await pusher.push(on_air_snap(slide=0))
+    await pusher.push(on_air_snap(slide=1))
+    await pusher.push(off_air_snap())
+    since = [b["onAirSince"] for b in server.bodies]
+    assert since[0] is None and since[3] is None
+    assert since[1] is not None and since[1] == since[2]  # unchanged while on air
+
+
+async def test_logs_being_overtaken_only_when_on_air(caplog):
+    answers = iter([
+        {"docId": "d", "active": False, "followed": None},             # off air: nothing to say
+        {"docId": "d", "active": False, "followed": "laptop@laptop"},  # on air, overtaken
+        {"docId": "d", "active": False, "followed": "laptop@laptop"},  # same again: quiet
+    ])
+
+    async def post(url, body, headers):
+        return next(answers)
+
+    pusher = HttpSnapshotPusher(FakeFeed([off_air_snap()]), "http://s", post=post)
+    with caplog.at_level("INFO", logger="snapshot_pusher"):
+        await pusher.push(off_air_snap())
+        assert "went on air after" not in caplog.text
+        await pusher.push(on_air_snap(slide=0))
+        await pusher.push(on_air_snap(slide=1))
+    assert caplog.text.count("laptop@laptop went on air after this machine") == 1

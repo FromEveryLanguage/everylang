@@ -66,10 +66,12 @@ Y-Sweet).
   retried with backoff forever, and the first success restores everything.
 - **Off air is a heartbeat, not a disconnect.** Off-air snapshots keep being sent (slowly) so
   `/status` can tell a quiet service from a dead one; the server applies only on-air ones.
-- **Two machines.** If two services post at once (the booth Mac and a laptop), the server
-  follows the one that went on air first and keeps it while it stays on air; the other is
-  told `active: false`, logs it, and shows on `/status` as `(standby)`. Take the followed one
-  off air to switch.
+- **Two machines.** If two services are on air at once (the booth Mac and a laptop), the
+  server follows the one that went on air most recently, as each reports it; the other is
+  told `active: false`, logs which machine overtook it, and shows on `/status` as
+  `(standby)`. A second machine is expected to be someone rescuing or shadowing the booth, so
+  going on air means "show mine" — and taking it off air hands back. A service restart counts
+  as going on air again (the time is not persisted), so a restarted booth Mac takes over.
 - **The server names the doc.** The snapshot carries the show's scheduled date (Proclaim's
   `DateGiven`) as a proposal. A future-dated show is accepted, so pre-staging the night before
   still works; a show dated *before today* is refused and today's doc is used, which is the

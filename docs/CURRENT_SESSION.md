@@ -83,7 +83,8 @@ The proposal now rides the service's snapshot POST (`/api/proclaim/snapshot`,
 [ADR-001](adr-001-server-owned-slide-sync.md)) and the answer is computed per snapshot, so a
 pin set mid-service applies to the very next snapshot — there is no connection to tear down
 and no re-check interval. Only the *followed* sender proposes: a second machine with next
-week's deck open cannot move the session while another is on screen. `/api/session/propose`
+week's deck open, off air, cannot move the session. Going on air with it *does* — that
+machine is then the one followed. `/api/session/propose`
 stays as a route for anything else that wants to ask.
 
 ### Pins lapse on their own

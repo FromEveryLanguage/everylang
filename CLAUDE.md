@@ -463,9 +463,12 @@ The server writes:
 - `slideTranslations` — translate-ahead, never overwriting a `reviewed` entry
 - `status.proclaimService` — the sender's version report, for `/status`
 
-Only an **on-air** snapshot is applied; off-air ones are heartbeats. With two senders, the
-followed one is kept while it stays on air and keeps posting; the other is answered
-`active: false` and shown on `/status` as `(standby)`. To switch, take the followed one off air.
+Only an **on-air** snapshot is applied; off-air ones are heartbeats. With two senders on air,
+the one that went on air **most recently** (by its own report, `onAirSince`) is followed — a
+second machine is assumed to be someone taking over or following along, not a mistake. The
+other is answered `active: false` and shown on `/status` as `(standby)`. To switch back, take
+the newer one off air. `SourceSelector` keeps no decision of its own; it is recomputed from
+the last post of each sender.
 
 #### React Components
 

@@ -226,33 +226,42 @@ describe('TranslateAhead', () => {
 });
 
 describe('SourceSelector', () => {
-  it('follows the first on-air sender and keeps it while it stays live', () => {
+  // observe(source, onAirSince | null, now): the sender's own on-air time, or null if off air.
+  it('follows whichever sender went on air most recently', () => {
     const s = new SourceSelector(30_000);
-    expect(s.observe('mac', true, 0)).toBe(true);
-    expect(s.observe('laptop', true, 1_000)).toBe(false);
-    expect(s.observe('mac', true, 2_000)).toBe(true);
+    expect(s.observe('mac', 100, 1_000)).toBe('mac');
+    expect(s.observe('laptop', 500, 2_000)).toBe('laptop');
+    // The booth keeps posting, but it went on air earlier: the laptop stays followed.
+    expect(s.observe('mac', 100, 3_000)).toBe('laptop');
   });
 
-  it('an off-air sender is never followed over an on-air one', () => {
+  it('nobody is followed while everyone is off air', () => {
     const s = new SourceSelector(30_000);
-    expect(s.observe('mac', false, 0)).toBe(false);
-    expect(s.observe('laptop', true, 1_000)).toBe(true);
+    expect(s.observe('mac', null, 0)).toBeNull();
   });
 
-  it('hands over when the followed sender goes off air', () => {
+  it('returns to the other sender when the followed one goes off air', () => {
     const s = new SourceSelector(30_000);
-    s.observe('mac', true, 0);
-    s.observe('laptop', true, 1_000);
-    expect(s.observe('mac', false, 2_000)).toBe(false);
-    expect(s.current()).toBe('laptop');
+    s.observe('mac', 100, 1_000);
+    s.observe('laptop', 500, 2_000);
+    expect(s.observe('laptop', null, 3_000)).toBe('mac');
   });
 
-  it('hands over when the followed sender goes silent', () => {
+  it('a sender that goes silent drops out without anyone else posting', () => {
     const s = new SourceSelector(30_000);
-    s.observe('mac', true, 0);
-    expect(s.observe('laptop', true, 10_000)).toBe(false);
-    expect(s.observe('laptop', true, 31_000)).toBe(true);
-    expect(s.observe('mac', true, 32_000)).toBe(false); // back, but the laptop is live now
+    s.observe('mac', 100, 0);
+    s.observe('laptop', 500, 0);
+    s.observe('mac', 100, 20_000); // the laptop has stopped posting
+    expect(s.followed(29_000)).toBe('laptop');
+    expect(s.followed(35_000)).toBe('mac');
+    expect(s.followed(60_000)).toBeNull();
+  });
+
+  it('a restarted sender reports a fresh on-air time and is followed again', () => {
+    const s = new SourceSelector(30_000);
+    s.observe('mac', 100, 1_000);
+    s.observe('laptop', 500, 2_000);
+    expect(s.observe('mac', 900, 3_000)).toBe('mac');
   });
 });
 

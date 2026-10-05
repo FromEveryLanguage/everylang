@@ -157,56 +157,40 @@ function clipSlideIndex(snap: FeedSnapshot, itemId: string | null, index: number
 export const SOURCE_SILENCE_MS = 30_000;
 
 /**
- * Which sender's snapshots are applied, when more than one is posting.
+ * Which sender's snapshots are applied, when more than one is posting: **the one that went on
+ * air most recently**, among those on air and heard from within {@link SOURCE_SILENCE_MS}.
  *
- * Two senders is not hypothetical: the rehearsal behind ADR-001 had a laptop on air while
- * the installed Mac was also running, and as two Yjs writers they simply interleaved. The
- * rule here is the smallest one that does the right thing in that case:
+ * A second machine is most likely an operator following along on another computer (a second
+ * display, or standing in for a wedged booth Mac), so going on air is read as "show mine".
+ * Ignoring it (first-on-air-wins) would make a rescue impossible without walking to the booth;
+ * applying both would flip the slides back and forth on every poll.
  *
- *   - Only an **on-air** sender can be followed. Proclaim's own on-air switch is the one
- *     thing the operator already controls, and an off-air sender has nothing to show —
- *     so a laptop that goes on air while the booth Mac sits off air is followed at once.
- *   - The followed sender is **kept** while it stays on air and keeps posting; a second
- *     on-air sender waits. If the followed one goes off air or silent, the most recent
- *     other on-air sender takes over.
- *
- * There is no designation or operator override yet (ADR-001 sketches both). With this rule
- * the remedy for "the wrong machine is followed" is to take it off air.
+ * `onAirSince` is the sender's own word — its clock, reset when its service restarts — and is
+ * believed as given. The server keeps no decision of its own: the followed sender is
+ * recomputed from this table on every post, so there is nothing to get out of step.
  */
 export class SourceSelector {
-  private seen = new Map<string, { onAir: boolean; at: number }>();
-  private followed: string | null = null;
+  /** Per sender: when it says it went on air (null = off air), and when we last heard from it. */
+  private seen = new Map<string, { onAirSince: number | null; at: number }>();
   private silenceMs: number;
 
   constructor(silenceMs: number = SOURCE_SILENCE_MS) {
     this.silenceMs = silenceMs;
   }
 
-  /** Record that `source` posted, and answer whether it is the one being followed. */
-  observe(source: string, onAir: boolean, now: number = Date.now()): boolean {
-    this.seen.set(source, { onAir, at: now });
-    if (!this.isLive(this.followed, now)) {
-      this.followed = onAir ? source : this.mostRecentLive(now);
-    }
-    return this.followed === source;
+  /** Record a post from `source`, and answer which sender is followed now (null: none on air). */
+  observe(source: string, onAirSince: number | null, now: number = Date.now()): string | null {
+    this.seen.set(source, { onAirSince, at: now });
+    return this.followed(now);
   }
 
-  /** The sender currently followed, if any. */
-  current(): string | null {
-    return this.followed;
-  }
-
-  private isLive(source: string | null, now: number): boolean {
-    if (source === null) return false;
-    const s = this.seen.get(source);
-    return !!s && s.onAir && now - s.at < this.silenceMs;
-  }
-
-  private mostRecentLive(now: number): string | null {
+  /** The live on-air sender with the latest `onAirSince`, if any. */
+  followed(now: number = Date.now()): string | null {
     let best: string | null = null;
-    let bestAt = -Infinity;
+    let bestSince = -Infinity;
     for (const [source, s] of this.seen) {
-      if (this.isLive(source, now) && s.at > bestAt) [best, bestAt] = [source, s.at];
+      if (s.onAirSince === null || now - s.at >= this.silenceMs) continue;
+      if (s.onAirSince > bestSince) [best, bestSince] = [source, s.onAirSince];
     }
     return best;
   }

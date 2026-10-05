@@ -70,7 +70,7 @@ export function makeSlideSnapshotRouter({
     const host = typeof service.host === 'string' && service.host ? service.host : 'unknown-host';
     const instance = typeof service.instance === 'string' ? service.instance : '';
     // Who is sending: the write key's label is the device; the host keeps two keyless
-    // senders (observe mode) apart. Stable across restarts, so a relaunch keeps its place.
+    // senders (observe mode) apart.
     const source = `${result.label ?? 'no-key'}@${host}`;
 
     const prev = lastSeq.get(source);
@@ -84,7 +84,14 @@ export function makeSlideSnapshotRouter({
       res.status(400).json({ ok: false, error: 'docId must look like doc-2026-08-30' });
       return;
     }
-    const active = override !== undefined || selector.observe(source, snap.onAir);
+    // When the sender says it went on air (its own clock; see SourceSelector). A sender that
+    // is on air but doesn't say when counts as the oldest, so one that does say wins.
+    const since = Date.parse(req.body?.onAirSince);
+    const onAirSince = snap.onAir ? (Number.isFinite(since) ? since : 0) : null;
+    // An override is outside selection altogether: a replay into doc-test-* going on air must
+    // not take the live service's slides away from its real sender.
+    const followed = override !== undefined ? source : selector.observe(source, onAirSince);
+    const active = followed === source;
 
     let docId: string;
     let docSource: string;
@@ -92,8 +99,8 @@ export function makeSlideSnapshotRouter({
     if (override !== undefined) {
       [docId, docSource] = [override, 'override'];
     } else if (active && snap.onAir) {
-      // Only the followed sender proposes: a laptop opening next week's deck must not move
-      // the session for everyone while the booth Mac is the one on screen.
+      // Only the followed sender proposes: a machine that is off air, or was overtaken by one
+      // that went on air after it, must not move the session for everyone.
       const rawDate = req.body?.proposal?.sessionDate ?? snap.session?.sessionDate;
       const sessionDate = typeof rawDate === 'string' && DATE_PATTERN.test(rawDate) ? rawDate : null;
       const proposal = await registry.propose(sessionDate, source);
@@ -124,7 +131,7 @@ export function makeSlideSnapshotRouter({
       void worker.offer(snap);
     }
 
-    res.json({ ok: true, docId, source: docSource, outcome, active, applied });
+    res.json({ ok: true, docId, source: docSource, outcome, active, applied, followed });
   });
 
   return router;

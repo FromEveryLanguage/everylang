@@ -149,20 +149,32 @@ describe('POST /api/proclaim/snapshot', () => {
     expect((await post(base, { snapshot: { onAir: 'yes' } })).status).toBe(400);
   });
 
-  it('follows one sender: a second on-air one is heard but not applied', async () => {
+  it('follows the sender that went on air most recently; the other is heard but not applied', async () => {
     const base = await serve();
-    const booth = await post(base, { snapshot: onAir(), service: { host: 'mac' } }, BOOTH_KEY);
-    const laptop = await post(
-      base,
-      { snapshot: onAir({ activeSlideIndex: 0, items: { a: { itemId: 'a', title: 'Other', slides: ['Hi'], itemKind: 'Content', slidesHash: 'h2', existingTranslation: null } } }), service: { host: 'laptop' } },
-      LAPTOP_KEY,
-    );
-    expect(booth.body).toMatchObject({ active: true, applied: true });
-    expect(laptop.body).toMatchObject({ active: false, applied: false });
+    const other = { a: { itemId: 'a', title: 'Other', slides: ['Hi'], itemKind: 'Content', slidesHash: 'h2', existingTranslation: null } };
+    const booth = await post(base, { snapshot: onAir(), onAirSince: '2026-10-04T14:00:00Z', service: { host: 'mac' } }, BOOTH_KEY);
+    expect(booth.body).toMatchObject({ active: true, applied: true, followed: 'booth@mac' });
+
+    const laptop = await post(base, { snapshot: onAir({ items: other }), onAirSince: '2026-10-04T14:05:00Z', service: { host: 'laptop' } }, LAPTOP_KEY);
+    expect(laptop.body).toMatchObject({ active: true, applied: true, followed: 'laptop@laptop' });
     const doc = docs.get(booth.body.docId as string)!;
-    expect(doc.getMap<{ title: string }>('proclaimPresentations').get('a')?.title).toBe('A');
+    expect(doc.getMap<{ title: string }>('proclaimPresentations').get('a')?.title).toBe('Other');
+
+    // The booth's next heartbeat changes nothing: it went on air earlier.
+    const again = await post(base, { snapshot: onAir(), onAirSince: '2026-10-04T14:00:00Z', service: { host: 'mac' } }, BOOTH_KEY);
+    expect(again.body).toMatchObject({ active: false, applied: false, followed: 'laptop@laptop' });
+    expect(doc.getMap<{ title: string }>('proclaimPresentations').get('a')?.title).toBe('Other');
     // Both are visible as writers, so "posting but not followed" is not a mystery.
-    expect(registry.recentWriters().map((w) => w.writer).sort()).toEqual(['booth@mac', 'laptop@laptop (standby)']);
+    // (The booth's earlier, followed sighting stays listed until it ages out.)
+    expect(registry.recentWriters().map((w) => w.writer)).toEqual(expect.arrayContaining(['booth@mac (standby)', 'laptop@laptop']));
+  });
+
+  it('a replay into an explicit doc never takes the live slides', async () => {
+    const base = await serve();
+    await post(base, { snapshot: onAir(), onAirSince: '2026-10-04T14:00:00Z', service: { host: 'mac' } }, BOOTH_KEY);
+    await post(base, { snapshot: onAir(), onAirSince: '2026-10-04T15:00:00Z', docId: 'doc-test-1', service: { host: 'laptop' } }, LAPTOP_KEY);
+    const booth = await post(base, { snapshot: onAir(), onAirSince: '2026-10-04T14:00:00Z', service: { host: 'mac' } }, BOOTH_KEY);
+    expect(booth.body).toMatchObject({ active: true, followed: 'booth@mac' });
   });
 
   it('an off-air snapshot is a heartbeat, not a write', async () => {

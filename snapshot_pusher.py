@@ -84,6 +84,11 @@ class HttpSnapshotPusher:
         self._post = post or self._http_post
         self._report_exception = report_exception or (lambda _e: None)
         self._last_answer: Optional[Dict[str, Any]] = None
+        # When this process first saw Proclaim on air (None while off air). With two machines
+        # on air the server follows the later one, so this is the "show mine" signal. Not kept
+        # across restarts: a restarted service counts as going on air again.
+        self._on_air_since: Optional[str] = None
+        self._last_standing: Optional[tuple] = None
         # One client for the life of run(), so a slide change reuses the open connection
         # instead of paying a fresh TCP + TLS handshake. A dropped connection surfaces as an
         # httpx error, which the retry loop already handles; the pool reconnects next time.
@@ -99,10 +104,18 @@ class HttpSnapshotPusher:
             raise ValueError(f"{url} answered with something that isn't a JSON object")
         return answer
 
+    def _note_on_air(self, snap: FeedSnapshot) -> None:
+        if not snap.on_air:
+            self._on_air_since = None
+        elif self._on_air_since is None:
+            self._on_air_since = datetime.now(timezone.utc).isoformat()
+
     def body_for(self, snap: FeedSnapshot) -> Dict[str, Any]:
+        self._note_on_air(snap)
         session_date = snap.session.session_date if snap.session else None
         body: Dict[str, Any] = {
             'snapshot': snap.to_json(),
+            'onAirSince': self._on_air_since,
             'proposal': {'sessionDate': session_date.isoformat() if session_date else None},
             'service': self.service,
         }
@@ -113,10 +126,10 @@ class HttpSnapshotPusher:
     async def push(self, snap: FeedSnapshot) -> Dict[str, Any]:
         """Send one snapshot; raises on any failure (the caller retries)."""
         answer = await self._post(self.url, self.body_for(snap), write_key_headers(self.write_key))
-        self._log_answer(answer)
+        self._log_answer(answer, snap.on_air)
         return answer
 
-    def _log_answer(self, answer: Dict[str, Any]) -> None:
+    def _log_answer(self, answer: Dict[str, Any], on_air: bool) -> None:
         """Say what the server did with our slides — but only when that changes."""
         prev = self._last_answer or {}
         self._last_answer = answer
@@ -124,13 +137,16 @@ class HttpSnapshotPusher:
             outcome = answer.get('outcome')
             why = f"{answer.get('source')}" + (f", proposal {outcome}" if outcome else '')
             logger.info(f"Slides are going to {answer.get('docId')} ({why})")
-        if answer.get('active') != prev.get('active'):
+        # Off air there is nothing to follow, so only an on-air machine's standing is news.
+        standing = (answer.get('active'), answer.get('followed')) if on_air else None
+        prev_standing, self._last_standing = self._last_standing, standing
+        if standing is not None and standing != prev_standing:
             if answer.get('active'):
                 logger.info("This machine is the slide source being followed")
             else:
                 logger.warning(
-                    "The server is following another slide source; this machine's snapshots "
-                    "are received but not shown (take the other one off air to switch)"
+                    f"{answer.get('followed')} went on air after this machine, so its slides are "
+                    "the ones shown (take it off air to switch back)"
                 )
 
     async def run(self) -> None:
