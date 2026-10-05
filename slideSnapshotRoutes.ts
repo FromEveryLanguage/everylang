@@ -52,6 +52,8 @@ export function makeSlideSnapshotRouter({
   const workers = new Map<string, TranslateAhead>();
   /** Last (instance, seq) per source, so a late retry can't roll the slides back. */
   const lastSeq = new Map<string, { instance: string; seq: number }>();
+  /** Last refusal logged per source: a pin holds all service, and every POST would repeat it. */
+  const lastRefusal = new Map<string, string>();
 
   router.post('/snapshot', async (req, res) => {
     const { result, allowed } = writeAuth.check(req, ROUTE);
@@ -97,9 +99,11 @@ export function makeSlideSnapshotRouter({
       const proposal = await registry.propose(sessionDate, source);
       ({ docId, source: docSource } = proposal.session);
       outcome = proposal.outcome;
-      if (outcome === 'stale' || outcome === 'pinned') {
+      const refusal = outcome === 'stale' || outcome === 'pinned' ? `${rawDate} ${outcome} ${docId}` : '';
+      if (refusal && lastRefusal.get(source) !== refusal) {
         log(`[slides] ${source} proposed ${rawDate}; ${outcome}, using ${docId}`);
       }
+      lastRefusal.set(source, refusal);
     } else {
       ({ docId, source: docSource } = registry.current());
     }

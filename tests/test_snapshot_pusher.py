@@ -119,3 +119,22 @@ async def test_an_unexpected_error_is_reported_not_fatal():
     )
     await run_for(pusher)
     assert len(reported) == 1 and calls >= 2
+
+
+async def test_one_connection_pool_for_the_whole_run_and_closed_after():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"docId": "doc-2030-01-15", "active": True})
+
+    snaps = [on_air_snap(slide=0), on_air_snap(slide=1), on_air_snap(item="item-2")]
+    pusher = HttpSnapshotPusher(FakeFeed(snaps), "http://server", timing=FAST)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    pusher._client = client  # the real path builds this lazily; here it is a mock transport
+
+    await run_for(pusher)
+
+    assert len(requests) == 3
+    assert client.is_closed
+    assert pusher._client is None

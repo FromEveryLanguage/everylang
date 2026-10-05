@@ -46,7 +46,10 @@ afterEach(async () => {
   await fs.rm(dir, { recursive: true, force: true });
 });
 
-async function serve(mode: 'observe' | 'enforce' = 'enforce'): Promise<string> {
+async function serve(
+  mode: 'observe' | 'enforce' = 'enforce',
+  log: (message: string) => void = () => {},
+): Promise<string> {
   const writeAuth = new WriteAuth(
     resolveWriteAuthConfig({
       WRITE_KEYS: `booth:${BOOTH_KEY},laptop:${LAPTOP_KEY}`,
@@ -66,6 +69,7 @@ async function serve(mode: 'observe' | 'enforce' = 'enforce'): Promise<string> {
       },
       translate,
       languages: LANGS,
+      log,
     }),
   );
   const server = app.listen(0);
@@ -185,6 +189,18 @@ describe('POST /api/proclaim/snapshot', () => {
     const { body } = await post(base, { snapshot: onAir(), proposal: { sessionDate: '2099-01-04' } });
     expect(body).toMatchObject({ docId: 'doc-2099-01-04', outcome: 'accepted', source: 'proposal' });
     expect(docs.has('doc-2099-01-04')).toBe(true);
+  });
+
+  it('logs a refused proposal once, not on every heartbeat', async () => {
+    const log = vi.fn();
+    const base = await serve('enforce', log);
+    const stale = { snapshot: onAir(), proposal: { sessionDate: '2000-01-02' } };
+    for (let i = 0; i < 3; i++) expect((await post(base, stale)).body).toMatchObject({ outcome: 'stale' });
+    expect(log).toHaveBeenCalledTimes(1);
+    // Accepted in between, then refused again: that is news, so it is logged again.
+    await post(base, { snapshot: onAir(), proposal: { sessionDate: '2099-01-04' } });
+    await post(base, stale);
+    expect(log).toHaveBeenCalledTimes(2);
   });
 
   it('an explicit docId bypasses the registry (replay into a throwaway doc)', async () => {

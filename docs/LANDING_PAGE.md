@@ -17,7 +17,7 @@ problems, in descending order of how badly they burn a real attendee:
 ### 1a. Choosing Haitian Creole silently gives you French
 
 The homepage dropdown offers the three *text* translation languages
-([configAtoms.ts](../src/configAtoms.ts)). The listen code is derived from the
+([translationLanguages.ts](../src/translationLanguages.ts)). The listen code is derived from the
 choice ([App.tsx](../src/App.tsx)):
 
 ```ts
@@ -128,7 +128,7 @@ the same set.
 
 | List | Where | What it actually is |
 |---|---|---|
-| `languages` | [configAtoms.ts](../src/configAtoms.ts) | text/slide translation targets, as display names |
+| `languages` | [translationLanguages.ts](../src/translationLanguages.ts) | text/slide translation targets, as display names |
 | `LANGUAGE_BCP47` | [strings.ts](../src/strings.ts) | name ↔ code map |
 | `LISTEN_FAVORITES` | [listenLanguages.ts](../src/listenLanguages.ts) | codes pinned in the listen picker |
 | `SUPPORTED_LOCALES` | strings.ts | locales the UI is *actually translated into* |

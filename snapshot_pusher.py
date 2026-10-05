@@ -84,14 +84,17 @@ class HttpSnapshotPusher:
         self._post = post or self._http_post
         self._report_exception = report_exception or (lambda _e: None)
         self._last_answer: Optional[Dict[str, Any]] = None
+        # One client for the life of run(), so a slide change reuses the open connection
+        # instead of paying a fresh TCP + TLS handshake. A dropped connection surfaces as an
+        # httpx error, which the retry loop already handles; the pool reconnects next time.
+        self._client: Optional[httpx.AsyncClient] = None
 
     async def _http_post(self, url: str, body: Dict[str, Any], headers: Dict[str, str]) -> Dict[str, Any]:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                url, json=body, headers=headers, timeout=self.timing.request_timeout
-            )
-            response.raise_for_status()
-            answer = response.json()
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self.timing.request_timeout)
+        response = await self._client.post(url, json=body, headers=headers)
+        response.raise_for_status()
+        answer = response.json()
         if not isinstance(answer, dict):
             raise ValueError(f"{url} answered with something that isn't a JSON object")
         return answer
@@ -133,6 +136,15 @@ class HttpSnapshotPusher:
     async def run(self) -> None:
         """Poll the feed and push snapshots until cancelled. Never returns on an error."""
         logger.info(f"Pushing slide snapshots to {self.url}")
+        try:
+            await self._run()
+        finally:
+            if self._client is not None:
+                with anyio.CancelScope(shield=True):
+                    await self._client.aclose()
+                self._client = None
+
+    async def _run(self) -> None:
         last_key: Optional[str] = None
         last_sent = float('-inf')
         backoff = self.timing.backoff_initial

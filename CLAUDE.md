@@ -495,7 +495,7 @@ worked examples.
 
 The install script:
 1. Fetches PostHog config from `{server-url}/api/config` and injects `POSTHOG_API_KEY` + `POSTHOG_HOST`
-2. Sets `YSWEET_URL` from `--server-url`
+2. Sets `SERVER_URL` from `--server-url`
 3. Generates `~/Library/LaunchAgents/org.kenarnold.proclaim-service.plist` from the template
 4. Loads the service as a LaunchAgent (auto-restarts, survives reboots)
 

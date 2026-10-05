@@ -45,7 +45,7 @@ import {
 import { SessionRegistry } from './sessionRegistry.ts';
 import { makeSessionRouter } from './sessionRoutes.ts';
 import { makeSlideSnapshotRouter } from './slideSnapshotRoutes.ts';
-import { languages as FRONTEND_LANGUAGES } from './src/configAtoms.ts';
+import { languages as FRONTEND_LANGUAGES } from './src/translationLanguages.ts';
 import { limitFromEnv, makeRateLimit } from './rateLimit.ts';
 
 // Get API keys from environment variables, crash if not set
