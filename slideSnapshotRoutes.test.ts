@@ -165,8 +165,12 @@ describe('POST /api/proclaim/snapshot', () => {
     expect(again.body).toMatchObject({ active: false, applied: false, followed: 'laptop@laptop' });
     expect(doc.getMap<{ title: string }>('proclaimPresentations').get('a')?.title).toBe('Other');
     // Both are visible as writers, so "posting but not followed" is not a mystery.
-    // (The booth's earlier, followed sighting stays listed until it ages out.)
-    expect(registry.recentWriters().map((w) => w.writer)).toEqual(expect.arrayContaining(['booth@mac (standby)', 'laptop@laptop']));
+    // One row per machine: the booth's row now says standby, rather than gaining a second row.
+    const rows = registry.recentWriters().map(({ writer, standby }) => ({ writer, standby }));
+    expect(rows.sort((a, b) => a.writer.localeCompare(b.writer))).toEqual([
+      { writer: 'booth@mac', standby: true },
+      { writer: 'laptop@laptop', standby: undefined },
+    ]);
   });
 
   it('a replay into an explicit doc never takes the live slides', async () => {

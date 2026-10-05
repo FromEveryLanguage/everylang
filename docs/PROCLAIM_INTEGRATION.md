@@ -69,7 +69,7 @@ Y-Sweet).
 - **Two machines.** If two services are on air at once (the booth Mac and a laptop), the
   server follows the one that went on air most recently, as each reports it; the other is
   told `active: false`, logs which machine overtook it, and shows on `/status` as
-  `(standby)`. A second machine is expected to be someone rescuing or shadowing the booth, so
+  standby. A second machine is expected to be someone rescuing or shadowing the booth, so
   going on air means "show mine" — and taking it off air hands back. A service restart counts
   as going on air again (the time is not persisted), so a restarted booth Mac takes over.
 - **The server names the doc.** The snapshot carries the show's scheduled date (Proclaim's

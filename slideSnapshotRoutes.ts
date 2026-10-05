@@ -116,7 +116,7 @@ export function makeSlideSnapshotRouter({
     }
 
     // The POST is the heartbeat; /status shows how long ago each sender was seen.
-    registry.noteWriter(active ? source : `${source} (standby)`, docId);
+    registry.noteWriter(source, docId, undefined, { standby: !active });
 
     const applied = active && snap.onAir && !stale;
     if (applied) {
