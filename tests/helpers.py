@@ -1,58 +1,10 @@
-"""Shared test doubles for the slide-sync runtime and seam tests.
+"""Shared test doubles: a scripted ``SlideFeed`` and canned snapshots, so no real
+Proclaim (or server) is needed."""
 
-These fake the three external boundaries so no real Proclaim or Y-Sweet is needed:
-- ``FakeWebSocket`` / ``FakeProvider`` stand in for the Y-Sweet websocket + pycrdt Provider.
-- ``FakeFeed`` is a scripted ``SlideFeed`` yielding canned snapshots (repeating the last).
-"""
-
-import asyncio
-import contextlib
 from datetime import date
 from typing import List, Optional
-from unittest import mock
 
-import anyio
-from pycrdt import YMessageType, handle_sync_message
-
-import slide_sync_runtime as ssr
 from slide_feed import FeedItem, FeedSnapshot, SessionInfo
-from slide_sync_runtime import RuntimeTiming
-
-
-class FakeWebSocket:
-    """Stand-in for an httpx_ws AsyncWebSocketSession.
-
-    ``ping`` records calls and can be made to fail after N pings to simulate a silently
-    dropped connection (which is how the runtime detects disconnects).
-    """
-
-    def __init__(self, fail_ping_after=None):
-        self.ping_count = 0
-        self.fail_ping_after = fail_ping_after
-
-    async def ping(self):
-        self.ping_count += 1
-        if self.fail_ping_after is not None and self.ping_count >= self.fail_ping_after:
-            raise ssr.HTTPXWSException("websocket dropped")
-
-
-class FakeProvider:
-    """No-op stand-in for the pycrdt Provider context manager.
-
-    Models a server that syncs instantly: the runtime holds its consumers until the
-    channel reports the initial SYNC_STEP2, so the fake flags it on entry.
-    """
-
-    def __init__(self, doc=None, channel=None, *args, **kwargs):
-        self._channel = channel
-
-    async def __aenter__(self):
-        if self._channel is not None and hasattr(self._channel, "synced"):
-            self._channel.synced.set()
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
 
 
 class FakeFeed:
@@ -72,36 +24,6 @@ class FakeFeed:
         self.reset_called += 1
 
 
-@contextlib.contextmanager
-def patched_connection(websocket, real_provider: bool = False):
-    """Patch aconnect_ws (and, unless ``real_provider``, Provider) to use the fake websocket.
-
-    ``real_provider=True`` keeps pycrdt's Provider, so the websocket has to speak the sync
-    protocol — pass a ``FakeSyncingWebSocket``.
-    """
-    @contextlib.asynccontextmanager
-    async def fake_aconnect_ws(*args, **kwargs):
-        yield websocket
-
-    with contextlib.ExitStack() as stack:
-        stack.enter_context(mock.patch.object(ssr, "aconnect_ws", fake_aconnect_ws))
-        if not real_provider:
-            stack.enter_context(mock.patch.object(ssr, "Provider", FakeProvider))
-        yield
-
-
-def fast_timing() -> RuntimeTiming:
-    """Runtime timing scaled down so loops complete near-instantly."""
-    return RuntimeTiming(
-        poll_interval=0.001,
-        poll_interval_off_air=0.001,
-        off_air_disconnect_after=0.005,
-        reconnect_backoff_initial=0.001,
-        reconnect_backoff_max=0.002,
-        ws_ping_interval=0.0,  # ping every poll so the health-check path runs in-window
-    )
-
-
 def on_air_snap(item="item-1", slide=0, slides=("A", "B"), session_date: Optional[date] = None,
                 presentation_id="pres-1") -> FeedSnapshot:
     return FeedSnapshot(
@@ -117,36 +39,3 @@ def on_air_snap(item="item-1", slide=0, slides=("A", "B"), session_date: Optiona
 
 def off_air_snap() -> FeedSnapshot:
     return FeedSnapshot(on_air=False, session=None)
-
-
-class FakeSyncingWebSocket(FakeWebSocket):
-    """A fake Y-Sweet endpoint that speaks the real sync protocol against a server-side Doc.
-
-    Unlike ``FakeWebSocket`` + ``FakeProvider`` (which short-circuit sync entirely), this
-    drives the *real* pycrdt ``Provider``: it answers the client's SYNC_STEP1 with a
-    SYNC_STEP2 carrying ``server_doc``'s state — after ``step2_delay`` seconds, so a test can
-    put work in the window between "connected" and "synced" — and applies the client's
-    updates to ``server_doc`` so a test can assert what the service wrote.
-    """
-
-    def __init__(self, server_doc, step2_delay: float = 0.0, fail_ping_after=None):
-        super().__init__(fail_ping_after=fail_ping_after)
-        self.server_doc = server_doc
-        self.step2_delay = step2_delay
-        self._send, self._recv = anyio.create_memory_object_stream[bytes](100)
-        self._pending_replies: set = set()
-
-    async def send_bytes(self, message: bytes) -> None:
-        # Messages arrive from the client; the protocol plumbing is pycrdt's own.
-        if message[0] != YMessageType.SYNC:
-            return
-        reply = handle_sync_message(message[1:], self.server_doc)
-        if reply is not None:
-            asyncio.get_running_loop().create_task(self._reply_later(reply))
-
-    async def _reply_later(self, reply: bytes) -> None:
-        await anyio.sleep(self.step2_delay)
-        await self._send.send(reply)
-
-    async def receive_bytes(self) -> bytes:
-        return await self._recv.receive()

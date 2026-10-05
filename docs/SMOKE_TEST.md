@@ -32,11 +32,16 @@ an incident happens that this list would not have caught, add a line.
 
 ## 3. Proclaim sync
 
-- [ ] Proclaim service running (LaunchAgent), and its log line after a show goes on air
-      names the doc the *server* gave it (not one it computed) — see
-      [CURRENT_SESSION.md](CURRENT_SESSION.md).
+- [ ] Proclaim service running (LaunchAgent), and its log says `Slides are going to doc-…`
+      and `This machine is the slide source being followed` once a show goes on air — see
+      [CURRENT_SESSION.md](CURRENT_SESSION.md). A `Could not send snapshot (HTTP 401 …)` line
+      means the write key; anything else repeating means the server is unreachable.
+- [ ] Server log shows `[write-auth] … /api/proclaim/snapshot key=<the Mac's label> → ok`.
 - [ ] Advance a slide in Proclaim; current-slide view updates on both devices within ~2 s.
-- [ ] Slide translations show for the on-air item; review screen loads its conversation.
+- [ ] Slide translations show for the on-air item (server log: `[slides] translated ahead: …`);
+      review screen loads its conversation.
+- [ ] Restart the service mid-show: slides keep showing, and the server log shows **no**
+      new `translated ahead` lines for items already translated.
 - [ ] `/status` shows the Proclaim service's SHA/branch, and no "update pending" flag
       (if it flags one, restart the service — restarting is what applies an update).
 
@@ -47,8 +52,8 @@ an incident happens that this list would not have caught, add a line.
 - [ ] "Who is writing where" lists the Proclaim service and the editor browsers, all green
       (same doc). Any amber row is a component writing somewhere else — fix that first.
 - [ ] Pin a scratch doc from `/status`, reload a viewer: it lands on the pinned doc. Clear
-      the pin, reload: it goes back. The Proclaim service follows within ~a minute without
-      going off air — watch its log say so. **Still: rehearse this before the service.**
+      the pin, reload: it goes back. The Proclaim service's slides follow on its next
+      snapshot (within ~10 s) without going off air — watch its log say so. **Still: rehearse this before the service.**
 - [ ] `?doc=doc-scratch` still overrides everything, pin included.
 - [ ] With the macOS audio feeder publishing, pin another doc: within ~a minute its log shows
       `session moved: … -> …` and audio reappears in the pinned room. (Its own doc-id field,

@@ -44,7 +44,7 @@ everyone re-derives.
 ```
                          ┌──────────────────────────────┐
    browsers ────read────▶│  GET  /api/session/current   │
-   Proclaim ──propose───▶│  POST /api/session/propose   │──▶ SessionRegistry
+   Proclaim ──propose───▶│  (rides /api/proclaim/snapshot)│──▶ SessionRegistry
    operator ────pin─────▶│  POST/DELETE /api/session/pin│      (persisted JSON)
                          └──────────────────────────────┘
 ```
@@ -79,15 +79,12 @@ never did before.
 The service logs the answer it *got*, including when that differs from what it proposed. The
 absence of that line is what made #111 invisible for a whole service.
 
-It also re-asks every `session_recheck_interval` (60s) while connected, and ends the session
-when the answer moves — the doc itself is still only ever changed by the reconnect path, with
-nothing connected. A failed re-check is ignored rather than dropping a working connection:
-the doc question keeps for a minute, the service does not.
-
-An answer that isn't usable — no `docId`, or a proxy's HTML error page returned with a 200 —
-raises `SessionResolutionError`, which the reconnect loop catches like any other connection
-problem. It must not escape: the launch wrapper's invariant is "runs last version", never
-"doesn't run".
+The proposal now rides the service's snapshot POST (`/api/proclaim/snapshot`,
+[ADR-001](adr-001-server-owned-slide-sync.md)) and the answer is computed per snapshot, so a
+pin set mid-service applies to the very next snapshot — there is no connection to tear down
+and no re-check interval. Only the *followed* sender proposes: a second machine with next
+week's deck open cannot move the session while another is on screen. `/api/session/propose`
+stays as a route for anything else that wants to ask.
 
 ### Pins lapse on their own
 
@@ -176,6 +173,5 @@ started anyway. It reports which server it cannot reach and retries on its exist
 | [`src/sessionCurrent.ts`](../src/sessionCurrent.ts) | shared shape + the one copy of the date formula |
 | [`src/getDocId.ts`](../src/getDocId.ts) | browser side: resolve once, then answer synchronously |
 | [`src/SessionGate.tsx`](../src/SessionGate.tsx) | the gate that mounts nothing until the answer is in |
-| [`session_client.py`](../session_client.py) | the Proclaim service's wire to `/api/session/propose` |
-| [`slide_sync_runtime.py`](../slide_sync_runtime.py) | resolves before connecting, re-checks while connected |
+| [`slideSnapshotRoutes.ts`](../slideSnapshotRoutes.ts) | the Proclaim service's proposal, riding each snapshot POST; resolved per snapshot, so a pin applies at once |
 | [`SessionClient.swift`](../macos-audio-feeder/Sources/AudioFeederCore/SessionClient.swift) | the macOS feeder's wire to `/api/session/current` |

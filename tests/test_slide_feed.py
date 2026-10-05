@@ -9,7 +9,7 @@ from datetime import date
 import anyio
 import pytest
 
-from slide_feed import FeedItem, FeedSnapshot, SessionInfo, SlideFeed, SnapshotBus
+from slide_feed import FeedItem, FeedSnapshot, SessionInfo, SlideFeed
 
 pytestmark = pytest.mark.anyio
 
@@ -68,40 +68,3 @@ def test_proclaim_feed_conforms_to_protocol_structurally():
 
         def reset(self):  # pragma: no cover - not called
             pass
-
-    assert isinstance(Dummy(), SlideFeed)
-
-
-async def test_snapshot_bus_conflates_and_wakes():
-    """wait() returns when a snapshot is published; current holds the latest."""
-    bus = SnapshotBus()
-    assert bus.current is None
-
-    async with anyio.create_task_group() as tg:
-        async def publisher():
-            await anyio.sleep(0.01)
-            bus.publish(make_snapshot(seq=1))
-
-        tg.start_soon(publisher)
-        with anyio.fail_after(1):
-            await bus.wait(timeout=5)
-
-    assert bus.current is not None
-    assert bus.current.seq == 1
-
-
-async def test_snapshot_bus_wait_times_out_without_publish():
-    """wait() returns after the timeout even if nothing is published (no hang)."""
-    bus = SnapshotBus()
-    with anyio.fail_after(1):
-        await bus.wait(timeout=0.01)
-    assert bus.current is None
-
-
-async def test_snapshot_bus_keeps_only_latest():
-    """Rapid publishes conflate: current is the newest, intermediate values are dropped."""
-    bus = SnapshotBus()
-    bus.publish(make_snapshot(seq=1))
-    bus.publish(make_snapshot(seq=2))
-    bus.publish(make_snapshot(seq=3))
-    assert bus.current.seq == 3

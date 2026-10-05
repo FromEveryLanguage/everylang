@@ -9,7 +9,8 @@ This is a **live translation application** for presentations/talks. It provides 
 - **Real-time collaboration**: Y-Sweet/Yjs for shared state across viewers
 - **Translation**: Google Gemini for AI-powered translation
 - **Text-to-Speech**: ElevenLabs for audio playback of translations
-- **Proclaim integration**: Python service syncing Proclaim presentation slides to Yjs
+- **Proclaim integration**: Python service reading Proclaim and POSTing what it shows to the
+  server, which publishes the slides into Yjs and translates ahead ([ADR-001](docs/adr-001-server-owned-slide-sync.md))
 - **Frontend**: React + TypeScript + Vite + Tailwind CSS
 - **Backend**: Express server
 - **Live speech translation**: LiveKit rooms + Gemini Live ([live-audio/](live-audio/)) — a broadcaster publishes mic audio; per-language translator bots stream it through Gemini Live and publish translated audio + live transcripts
@@ -60,9 +61,10 @@ reads them, which is where they stay correct.
   `TRANSLATE_RATE_LIMIT_PER_MIN`) — the two endpoints viewers call directly and a write key
   can't protect. Sized to stop a script, not a congregation; `0` disables. See
   [rateLimit.ts](rateLimit.ts).
-- *Model and prompt overrides* (`GEMINI_STRONG_MODEL`, `SLIDE_TRANSLATION_CONTEXT`) — the
-  stronger model used for whole-item slide drafting via `/api/translateItem`, and the general
-  context injected into every slide-translation prompt. Both defaulted in `server.ts`.
+- *Model and prompt overrides* (`GEMINI_STRONG_MODEL`, `SLIDE_TRANSLATION_CONTEXT`,
+  `SLIDE_TRANSLATION_LANGUAGES`) — the stronger model used for whole-item slide drafting, the
+  general context injected into every slide-translation prompt, and the languages the
+  Proclaim feed is translated into ahead of time. All defaulted in `server.ts`.
 - *Storage paths* (`SLIDE_LIBRARY_PATH`) — the reviewed-translation library; defaults inside
   the audio-cache dir so it rides the existing Docker volume.
 - *Telemetry* (`VITE_PUBLIC_POSTHOG_KEY`, `VITE_PUBLIC_POSTHOG_HOST`) — genuinely optional.
@@ -163,31 +165,29 @@ uv run proclaim_service.py --replay recordings/service.jsonl [--replay-speed 4]
 uv run pytest
 
 # Run a single test
-uv run pytest tests/test_slide_sync_runtime.py::test_reconnects_after_websocket_drop
+uv run pytest tests/test_snapshot_pusher.py::test_keeps_retrying_through_a_server_outage
 
 # Run the `slow` tests too (deselected by default; CI always runs them)
 uv run pytest -m slow
 ```
 
-Tests live in [tests/](tests/), split to match the decoupled modules: `test_slide_feed`,
-`test_proclaim_feed`, `test_yjs_publisher`, `test_slide_translator`, `test_slide_sync_runtime`
-(connection lifecycle: lazy connect, wait for the initial Y-Sweet sync before the consumers
-run, off-air disconnect, auto-reconnect with backoff, state re-push), `test_slide_seam` (replayed feed drives the real consumers), `test_slide_replay`
-(record → JSONL → replay through the real consumers, driven by the committed synthetic fixture
-[tests/fixtures/synthetic_service.jsonl](tests/fixtures/synthetic_service.jsonl); regenerate
-with `uv run tests/fixtures/make_synthetic_service.py`), `test_proclaim_lib`,
-`test_service_version` (the self-reported version / "update pending" flag),
-`test_session_client` (proposing the on-air date and obeying the answer, #111), and
+Tests live in [tests/](tests/), split to match the modules: `test_slide_feed`,
+`test_proclaim_feed`, `test_snapshot_pusher` (send on change + heartbeat, retry forever),
+`test_slide_replay` (record → JSONL → replay; the committed synthetic fixture
+[tests/fixtures/synthetic_service.jsonl](tests/fixtures/synthetic_service.jsonl) is replayed
+through the server side by `slideSnapshotRoutes.test.ts`; regenerate it with
+`uv run tests/fixtures/make_synthetic_service.py`), `test_proclaim_lib`,
+`test_service_version` (the self-reported version / "update pending" flag), and
 `test_proclaim_launcher` (the auto-update launch wrapper — marked `slow` and deselected
 from the default run: it shells out to real git and real subprocess timeouts for ~25s to
 cover a file almost no change touches, so run it with `-m slow` when you edit
 [proclaim_service_launch.sh](proclaim_service_launch.sh); CI runs it on every push).
-The shared fakes for the Proclaim DB, the Y-Sweet websocket, and the Yjs Provider live in
+The shared fakes (a scripted feed, canned snapshots) live in
 [tests/helpers.py](tests/helpers.py); timing is scaled down by injecting it (constructor args)
-so loops run in milliseconds — no real Proclaim or Y-Sweet needed. Async tests run on the
+so loops run in milliseconds — no real Proclaim or server needed. Async tests run on the
 asyncio backend via the `anyio_backend` fixture in [tests/conftest.py](tests/conftest.py),
-which also sets `YSWEET_URL` and puts the repo root on `sys.path`. The new library modules are
-import-clean (no `YSWEET_URL` needed to import them).
+which also sets `SERVER_URL` and puts the repo root on `sys.path`. The library modules are
+import-clean (no `SERVER_URL` needed to import them).
 
 ### Deployment
 ```bash
@@ -223,7 +223,8 @@ which records every privileged request and allows it anyway. Full picture:
 Which Y-Sweet doc everything reads and writes is a **server-owned fact**, not a formula each
 component re-derives ([sessionRegistry.ts](sessionRegistry.ts), routes in
 [sessionRoutes.ts](sessionRoutes.ts), browser side [src/getDocId.ts](src/getDocId.ts) +
-[src/SessionGate.tsx](src/SessionGate.tsx), Python side [session_client.py](session_client.py)).
+[src/SessionGate.tsx](src/SessionGate.tsx); the Proclaim service's proposal rides its snapshot
+POST, [slideSnapshotRoutes.ts](slideSnapshotRoutes.ts)).
 
 Precedence: `?doc=` / explicit `doc_id` override → an operator pin set from `/status` →
 the Proclaim service's accepted proposal → the date in `SESSION_TIMEZONE`. The service
@@ -431,22 +432,40 @@ The app integrates with **Proclaim** (church presentation software) to display c
 
 #### Architecture
 
-The integration uses a **Python service** ([proclaim_service.py](proclaim_service.py)) that:
+The integration is split at the `FeedSnapshot` ([slide_feed.py](slide_feed.py)), per
+[ADR-001](docs/adr-001-server-owned-slide-sync.md):
 
-1. **Polls Proclaim API** for current presentation and slide status (interval set by `PROCLAIM_POLL_INTERVAL` on air and `PROCLAIM_POLL_INTERVAL_OFF_AIR` off it; see `proclaim_service.py`)
-2. **Parses presentation content** from Proclaim's SQLite database
-3. **Extracts translated slides** from rich text XML (supports songs, Bible passages, content slides)
-4. **Updates Yjs** via Y-Sweet WebSocket connection with presentation data and current status
+1. A **Python service** ([proclaim_service.py](proclaim_service.py)) on the Proclaim Mac polls
+   Proclaim's local API and SQLite DB (interval set by `PROCLAIM_POLL_INTERVAL` on air and
+   `PROCLAIM_POLL_INTERVAL_OFF_AIR` off it), parses each item's slides, and POSTs the *whole*
+   state to `POST /api/proclaim/snapshot` ([snapshot_pusher.py](snapshot_pusher.py)) on every
+   change and as a heartbeat. It has no Yjs connection and decides nothing about docs.
+2. The **server** ([slideSnapshotRoutes.ts](slideSnapshotRoutes.ts), [slideSync.ts](slideSync.ts))
+   resolves the doc (the snapshot carries the show's date as a proposal), picks which sender to
+   follow if there are two, publishes the slide maps through its own *synced* doc connection,
+   and translates upcoming items ahead into `slideTranslations`.
+
+Why the split: the service used to be a pycrdt Yjs client that also decided when to pay for
+a translation, by reading a replica that had not finished syncing — a rehearsal re-translated
+an item already in the doc, and two copies of the service would each have paid. A
+check-then-act decision belongs with the one process that writes the map and knows when its
+replica is current.
 
 #### Data Flow
 
 ```
-Proclaim API/DB → Python Service → Y-Sweet → React Components
+Proclaim API/DB → Python service ─POST snapshot→ Express server → Y-Sweet → React Components
 ```
 
-The Python service syncs to two Yjs data structures:
-- `proclaimPresentations` (Y.Map): Maps itemId → `{title, itemId, slides: string[]}`
-- `proclaimStatus` (Y.Map): Current status `{itemId, slideIndex}`
+The server writes:
+- `proclaimServiceOrder`, `proclaimPresentations`, `proclaimStatus` — in one transaction per
+  snapshot, diffed against what the doc already holds
+- `slideTranslations` — translate-ahead, never overwriting a `reviewed` entry
+- `status.proclaimService` — the sender's version report, for `/status`
+
+Only an **on-air** snapshot is applied; off-air ones are heartbeats. With two senders, the
+followed one is kept while it stays on air and keeps posting; the other is answered
+`active: false` and shown on `/status` as `(standby)`. To switch, take the followed one off air.
 
 #### React Components
 
@@ -495,8 +514,8 @@ directly: each launch fast-forwards the checkout to the release branch (`proclai
 is best-effort and timeout-bounded, and a failed dependency sync rolls the checkout back to
 the SHA that was running — the invariant is "runs last version", never "doesn't run".
 Releasing is `git push origin main:proclaim-stable` (don't move it after Thursday); applying
-an update is restarting the service. The service reports its SHA/branch/channel into the
-session doc's `status` Y.Map (key `proclaimService`), and the status view flags "update
+an update is restarting the service. The service sends its SHA/branch/channel with every snapshot;
+the server files it in the session doc's `status` Y.Map (key `proclaimService`), and the status view flags "update
 pending — restart the service" when the channel has moved past it. Install with
 `--no-auto-update` (or set `PROCLAIM_AUTO_UPDATE=0` in the plist) to freeze an install.
 Details in [docs/PROCLAIM_SERVICE_SETUP.md](docs/PROCLAIM_SERVICE_SETUP.md#automatic-updates).
@@ -567,17 +586,16 @@ has the longer version and the evidence behind it.
 - [sessionRegistry.ts](sessionRegistry.ts) / [sessionRoutes.ts](sessionRoutes.ts) - the
   server-owned current session (#111): pin/proposal/date precedence, 4am expiry, writer sightings
 - [nlp.ts](nlp.ts) - Gemini API integration for translation
-- Proclaim → Yjs sync (Python), decoupled into a slide feed + consumers:
+- Proclaim slides (ADR-001): the server side —
+  - [slideSnapshotRoutes.ts](slideSnapshotRoutes.ts) - `POST /api/proclaim/snapshot`: write key, doc resolution, source selection, heartbeat
+  - [slideSync.ts](slideSync.ts) - `publishSnapshot`, `SourceSelector`, `TranslateAhead` (all on a plain Y.Doc)
+- Proclaim service (Python, on the Proclaim Mac), a slide feed + a pusher:
   - [proclaim_service.py](proclaim_service.py) - thin entrypoint: env/config, telemetry, and wiring
-  - [slide_feed.py](slide_feed.py) - the seam: `FeedSnapshot` (serializable), `SlideFeed` Protocol, `SnapshotBus`
+  - [slide_feed.py](slide_feed.py) - the seam: `FeedSnapshot` (serializable), `SlideFeed` Protocol
   - [proclaim_feed.py](proclaim_feed.py) - `ProclaimClient` + `ProclaimFeed` (the source), emits a snapshot per poll
-  - [yjs_publisher.py](yjs_publisher.py) - `YjsSlidePublisher` (client consumer), single-transaction map writes
-  - [slide_translator.py](slide_translator.py) - `SlideTranslator` (translation consumer), seeds `slideTranslations`
-  - [slide_sync_runtime.py](slide_sync_runtime.py) - `SlideSyncRuntime`: doc lifecycle, connect/reconnect, fan-out
-  - [slide_replay.py](slide_replay.py) - record/replay of the `FeedSnapshot` stream (issue #70, Proclaim slice): `RecordingSlideFeed` (`--record`), `ReplaySlideFeed` (`--replay`), `replay_records_through_consumers` (offline replay through the real consumers)
+  - [snapshot_pusher.py](snapshot_pusher.py) - `HttpSnapshotPusher`: POSTs snapshots on change + heartbeat, retries forever
+  - [slide_replay.py](slide_replay.py) - record/replay of the `FeedSnapshot` stream (issue #70, Proclaim slice): `RecordingSlideFeed` (`--record`), `ReplaySlideFeed` (`--replay`)
   - [proclaim_lib.py](proclaim_lib.py) - DB access + rich-text/XML slide parsing (unchanged, shared)
-  - [session_client.py](session_client.py) - proposes the on-air show's date to the server and
-    takes the doc it is given back (#111); the service no longer decides its own doc
 
 ### Frontend Core
 - [App.tsx](src/App.tsx) - Main React app with routing and layout system

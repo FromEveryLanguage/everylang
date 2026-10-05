@@ -54,7 +54,8 @@ otherwise an error. `FeederConfig` no longer knows how to name a doc at all — 
 `resolvedDocID()` is most of the value here, because a formula that still exists is a formula
 something will call.
 
-`AppController` does what `slide_sync_runtime.py` does, in the same shape: the ask is the
+`AppController` does what the Proclaim service's runtime did (before ADR-001 moved that
+service's doc handling to the server), in the same shape: the ask is the
 first step of starting a pipeline (`startPipeline(device:)`), and the answer is consumed by
 the task that fetched it, never stored. While publishing, `recheckSessionIfDue` asks again
 every 60s and compares the answer with `Publisher.docID` — the room it is actually in — and
