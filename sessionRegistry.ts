@@ -247,7 +247,7 @@ export class SessionRegistry {
     { standby = false }: { standby?: boolean } = {},
   ): void {
     if (!isValidDocId(docId)) return;
-    this.writers.set(`${writer} ${docId}`, {
+    this.writers.set(`${writer}\u0000${docId}`, {
       writer,
       docId,
       at: now.toISOString(),
