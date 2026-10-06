@@ -17,7 +17,7 @@ import {
   defaultListenCode,
 } from "./listenLanguages";
 import { useSourceLanguage } from "./useSourceLanguage";
-import { LayoutDiagram } from "./LayoutDiagram";
+import { LandingPageContainer } from "./LandingPage";
 import type { ClientToken } from "@y-sweet/sdk";
 import { SourceTextTranslationManager } from "./SourceTextTranslationManager";
 import { PostHogErrorBoundary } from "posthog-js/react";
@@ -59,120 +59,6 @@ function ConnectionStatusWidget({
       }`}
     >
       {connectionStatus === "connecting" ? s.connecting : s.disconnected}
-    </div>
-  );
-}
-
-// Layouts: each is an array of arrays of component keys
-const availableLayouts = [
-  {
-    key: "slide-and-listen",
-    labelKey: "layoutSlideAndListen" as const,
-    layout: [
-      ["slideTranslation", "listen"]
-    ]
-  },
-  {
-    key: 'slide-and-translation',
-    labelKey: 'layoutSlideAndTranslation' as const,
-    layout: [
-      ["slideTranslation", "translatedText"]
-    ]
-  },
-  {
-    key: 'slide-and-bilingual',
-    labelKey: 'layoutBilingualView' as const,
-    layout: [
-      ["slideTranslation", "bilingual"]
-    ]
-  },
-];
-
-
-function HomePage() {
-  const s = useStrings();
-  const locale = resolveLocale();
-  const sourceLanguage = useSourceLanguage();
-  const [selectedLang, setSelectedLang] = useState<string>(languages[0]);
-
-  const langDisplayNames = new Intl.DisplayNames([locale], { type: 'language' });
-
-  // The listen pane is keyed by BCP-47 code (a larger set than our text-translation
-  // languages). Map the selected language to its code, falling back to the default
-  // listen language if Gemini Live doesn't support it (e.g. Haitian Creole).
-  const listenCode =
-    LISTEN_LANGUAGE_CODES.includes(LANGUAGE_BCP47[selectedLang])
-      ? LANGUAGE_BCP47[selectedLang]
-      : defaultListenCode(sourceLanguage);
-
-  // Substitute the selected language into a layout component's bare name.
-  const applyLanguage = (component: string): string => {
-    switch (component) {
-      case 'translatedText':
-      case 'bilingual':
-      case 'slideTranslation':
-        return `${component}-${selectedLang}`;
-      case 'listen':
-        return `listen-${listenCode}`;
-      default:
-        return component;
-    }
-  };
-
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen">
-      <h1 className="text-2xl font-bold mb-6 mt-8">
-        {s.chooseLayout}
-      </h1>
-      <div className="flex flex-col gap-6 w-full max-w-xl">
-        <div className="bg-white/80 dark:bg-gray-800/80 rounded shadow p-4 flex items-center justify-center gap-2">
-          <label htmlFor="home-language" className="font-semibold text-sm">
-            {s.chooseLanguage}
-          </label>
-          <select
-            id="home-language"
-            className="px-2 py-1 rounded text-sm bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700"
-            value={selectedLang}
-            onChange={(e) => setSelectedLang(e.target.value)}
-          >
-            {languages.map((lang) => (
-              <option key={lang} value={lang}>
-                {langDisplayNames.of(LANGUAGE_BCP47[lang]) ?? lang}
-              </option>
-            ))}
-          </select>
-        </div>
-        {availableLayouts.map((layout) => {
-          // Convert layout array to a layout string, substituting the selected
-          // language into any language-keyed components.
-          const layoutStr = layout.layout.map(row =>
-            row.map(applyLanguage).join(",")
-          ).join("|");
-          const localeParam = locale !== 'en' ? `?locale=${locale}` : '';
-          return (
-            <div
-              key={layout.key}
-              className="bg-white/80 dark:bg-gray-800/80 rounded shadow p-4"
-            >
-              <div className="flex flex-col md:flex-row items-center gap-3 mb-2">
-                <LayoutDiagram layout={layout.layout} />
-                <a
-                  href={`/${layoutStr}${localeParam}`}
-                  className="px-3 py-1 rounded bg-blue-500 text-white hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 transition text-sm shadow hover:shadow-lg"
-                >
-                  {s[layout.labelKey]}
-                </a>
-              </div>
-            </div>
-          );
-        })}
-        <div className="text-center mb-4 flex flex-col gap-2">
-          <a className="underline text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300" href={`/sourceText|bilingual-${selectedLang}#editor`}>Note-Taker</a> |{" "}
-          <a className="underline text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300" href={`/sourceText,broadcast|bilingual-${selectedLang}#editor`}>Broadcaster</a>
-          <a className="underline text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300" href="/slideReview#editor">{s.reviewSlidesLink}</a>
-          <a className="underline text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300" href="/status">{s.statusTitle}</a>
-        </div>
-      </div>
     </div>
   );
 }
@@ -361,6 +247,22 @@ function PagePart({ componentStr, onReplace }: { componentStr: string; onReplace
 }
 
 // Layout page: render the selected layout from URL
+/**
+ * The layout URL grammar: `|` separates columns, `,` stacks panes within a column.
+ * "translatedText-French,currentSlide|listen-fr" => [["translatedText-French", "currentSlide"], ["listen-fr"]]
+ *
+ * Columns sit side by side on a wide screen and stack on a narrow one. This is the
+ * definition; docs/LAYOUT_URLS.md has worked examples for people building a URL by hand.
+ */
+function parseLayoutString(layoutStr: string | undefined): string[][] {
+  if (!layoutStr) return [];
+  return layoutStr.split("|").map(col => col.split(","));
+}
+
+function formatLayoutString(columns: string[][]): string {
+  return columns.map(col => col.join(",")).join("|");
+}
+
 function LayoutPage({ layout: initialLayout }: { layout: string }) {
   const connectionStatus = useConnectionStatus();
   const s = useStrings();
@@ -368,18 +270,12 @@ function LayoutPage({ layout: initialLayout }: { layout: string }) {
   // Track current layout in state so we can update it when URL changes
   const [layout, setLayout] = useState(initialLayout);
 
-  // Parse layout from URL: e.g. "sourceText,translatedText-French|currentSlide" => [["sourceText", "translatedText-French"], ["currentSlide"]]
-  function parseLayoutString(layoutStr: string | undefined): string[][] {
-    if (!layoutStr) return [];
-    return layoutStr.split("|").map(row => row.split(","));
-  }
-
-  function replaceComponent(rowIdx: number, colIdx: number, newName: string) {
+  function replaceComponent(colIdx: number, paneIdx: number, newName: string) {
     const parsedLayout = parseLayoutString(layout);
-    const newLayout = parsedLayout.map((row, r) =>
-      row.map((component, c) => (r === rowIdx && c === colIdx) ? newName : component)
+    const newLayout = parsedLayout.map((col, c) =>
+      col.map((component, p) => (c === colIdx && p === paneIdx) ? newName : component)
     );
-    const newLayoutStr = newLayout.map(row => row.join(",")).join("|");
+    const newLayoutStr = formatLayoutString(newLayout);
     const currentSearch = window.location.search;
     const currentHash = window.location.hash;
     window.history.replaceState(null, '', `/${newLayoutStr}${currentSearch}${currentHash}`);
@@ -527,7 +423,7 @@ const SessionApp = () => {
   let pageComponent: React.ReactElement;
   const pathname = decodeURIComponent(window.location.pathname);
   if (pathname === "/" || pathname === "") {
-    pageComponent = <HomePage />;
+    pageComponent = <LandingPageContainer />;
   } else {
     // Remove leading slash and use as layout string
     // Note: this will be validated inside LayoutPage
