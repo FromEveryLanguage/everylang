@@ -308,9 +308,11 @@ translating from scratch.
   rounds run schema-free (mode AUTO, capped at 4 rounds) and a final structured call
   produces the JSON once Scripture is gathered. So the drafting path is now ≥2 model calls.
 - **Observability:** each executed lookup is reported via an `onToolCall` callback. The
-  server logs a PostHog `bible_lookup` event and returns `bibleLookups` from
-  `/api/translateItem`; the **review screen** shows them as ✓/⚠ reference chips under the
-  Suggest button (`SlideReviewContainer`).
+  server logs a PostHog `bible_lookup` event. The **review screen** doesn't need a separate
+  copy: the lookup's `{ reference, passages }` answer is already a tool response in the stored
+  conversation, and the Reference check panel (`referenceLookupDiff.ts`) reads it from there.
+  (It used to come back as a `bibleLookups` field on the HTTP response, which missed every
+  lookup the Proclaim service's own drafting made.)
 
 ### Line breaks in slide text — DONE
 Line breaks inside a slide are content, and the agent was getting them wrong in two ways.
