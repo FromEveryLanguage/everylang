@@ -61,6 +61,7 @@ export interface AppStrings {
   restartingTranslation: string;
   waitingForTranscript: string;
   waitingForSpeech: string;
+  reconnecting: string;
   liveAudioError: string;
   retry: string;
   broadcast: string;
@@ -202,6 +203,7 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     restartingTranslation: 'Restarting translation…',
     waitingForTranscript: 'Waiting for the transcript…',
     waitingForSpeech: 'Waiting for translated speech…',
+    reconnecting: 'Reconnecting…',
     liveAudioError: 'Live audio unavailable',
     retry: 'Retry',
     broadcast: 'Broadcast',
@@ -335,6 +337,7 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     restartingTranslation: 'Redémarrage de la traduction…',
     waitingForTranscript: 'En attente de la transcription…',
     waitingForSpeech: 'En attente de la traduction vocale…',
+    reconnecting: 'Reconnexion…',
     liveAudioError: 'Audio en direct indisponible',
     retry: 'Réessayer',
     broadcast: 'Diffusion',
@@ -468,6 +471,7 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     restartingTranslation: 'Reiniciando la traducción…',
     waitingForTranscript: 'Esperando la transcripción…',
     waitingForSpeech: 'Esperando la traducción hablada…',
+    reconnecting: 'Reconectando…',
     liveAudioError: 'Audio en vivo no disponible',
     retry: 'Reintentar',
     broadcast: 'Transmisión',
@@ -601,6 +605,7 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     restartingTranslation: 'N ap redemare tradiksyon an…',
     waitingForTranscript: 'N ap tann transkripsyon an…',
     waitingForSpeech: 'N ap tann tradiksyon vokal la…',
+    reconnecting: 'N ap rekonekte…',
     liveAudioError: 'Odyo an dirèk pa disponib',
     retry: 'Reeseye',
     broadcast: 'Difizyon',
