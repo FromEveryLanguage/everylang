@@ -45,6 +45,7 @@ import {
 } from './writeAuthRoutes.ts';
 import { SessionRegistry } from './sessionRegistry.ts';
 import { makeSessionRouter } from './sessionRoutes.ts';
+import { makeTranscriptResetRouter } from './transcriptResetRoutes.ts';
 import { makeSlideSnapshotRouter } from './slideSnapshotRoutes.ts';
 import { languages as FRONTEND_LANGUAGES } from './src/translationLanguages.ts';
 import { limitFromEnv, makeRateLimit } from './rateLimit.ts';
@@ -389,6 +390,19 @@ app.use(
   makeSessionRouter({
     registry: sessionRegistry,
     requireWriteKey,
+    log: (message) => console.log(message),
+  }),
+);
+
+// Starting a session's live transcripts over, after a demo in the real doc. Refuses while
+// a broadcaster is live unless confirmed — see transcriptResetRoutes.ts.
+app.use(
+  '/api/session',
+  makeTranscriptResetRouter({
+    requireWriteKey,
+    readDoc: (docId) => documentManager.getDocAsUpdate(docId),
+    writeDoc: (docId, update) => documentManager.updateDoc(docId, update),
+    broadcasterPresent: (docId) => TranslationSessionManager.getInstance().broadcasterPresent(docId),
     log: (message) => console.log(message),
   }),
 );
