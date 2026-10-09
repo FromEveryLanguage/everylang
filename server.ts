@@ -721,8 +721,6 @@ app.post('/api/translateItem', requireWriteKey('/api/translateItem'), async (req
   });
 
   const lookup = slideLibrary.toLookup();
-  // Bible lookups the model made while drafting — reported to PostHog and the review UI.
-  const bibleLookups: BibleToolCall[] = [];
   // The raw agent history, captured so we can persist it for review + follow-ups.
   let conversationMessages: Content[] = [];
   // Token usage across the draft's model calls (surfaced so cache hits/cost are visible).
@@ -741,10 +739,7 @@ app.post('/api/translateItem', requireWriteKey('/api/translateItem'), async (req
         itemTitle: itemTitle || undefined,
         model: STRONG_MODEL,
         observability,
-        onToolCall: (call) => {
-          bibleLookups.push(call);
-          recordBibleLookup(call, conversationId, docId);
-        },
+        onToolCall: (call) => recordBibleLookup(call, conversationId, docId),
         onConversation: (messages) => {
           conversationMessages = messages;
         },
@@ -783,7 +778,7 @@ app.post('/api/translateItem', requireWriteKey('/api/translateItem'), async (req
     usage,
   });
 
-  return res.json({ ok: true, translations, bibleLookups, conversationId });
+  return res.json({ ok: true, translations, conversationId });
 });
 
 // The review screen reads the conversation live from the `slideConversations` Y.Map in its
@@ -820,7 +815,6 @@ app.post('/api/slideConversation/message', requireWriteKey('/api/slideConversati
   writeConversation(conversationsMap, conversation);
 
   const bibleLanguages = conversation.languages.filter((language) => BIBLE_TRANSLATIONS[language]);
-  const bibleLookups: BibleToolCall[] = [];
   // Same trace id as the initial draft so this follow-up's generations group with it.
   const observability = slideObservability(itemId, docId, { source: 'followUp' });
   try {
@@ -832,7 +826,6 @@ app.post('/api/slideConversation/message', requireWriteKey('/api/slideConversati
       currentTranslations,
       observability,
       onToolCall: (call) => {
-        bibleLookups.push(call);
         recordBibleLookup(call, itemId, docId);
         // Stream the agent's progress (new tool-call/response messages) to watchers.
         writeConversation(conversationsMap, conversation);
@@ -850,7 +843,7 @@ app.post('/api/slideConversation/message', requireWriteKey('/api/slideConversati
         updatedTranslations.push({ language, sourceText: block.sourceText, text: block.translatedText });
       }
     }
-    return res.json({ ok: true, conversation, updatedTranslations, bibleLookups });
+    return res.json({ ok: true, conversation, updatedTranslations });
   } catch (err) {
     setStatusIn(conversationsMap, itemId, 'error');
     console.error('slideConversation/message failed:', err);
