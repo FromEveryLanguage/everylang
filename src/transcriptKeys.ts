@@ -225,3 +225,38 @@ export function liveTranscriptCodes(doc: Y.Doc): string[] {
     return liveTranscriptLabel(a).localeCompare(liveTranscriptLabel(b));
   });
 }
+
+/**
+ * Empty every live transcript in the doc, in both namespaces, and return the codes that
+ * held anything. For starting a service fresh in a doc a demo already spoke into: the
+ * demo's lines would otherwise sit at the top of every transcript pane and every export,
+ * and once the real service's spoken language differs from the demo's, its translations
+ * end up filed under the code the service now calls the original.
+ *
+ * Deletes rather than hides. Nobody wants a demo back, and a hide-before marker would be
+ * one more rule every reader has to remember to apply. The root types themselves can't
+ * be removed (Yjs has no way to), so the keys stay behind, empty.
+ *
+ * Safe against a writer that is still appending: TranscriptSegmentLog keeps no state
+ * between deltas, so its next delta simply opens a new first segment. A delta racing
+ * the clear into a segment that was just deleted is dropped with it.
+ */
+export function clearLiveTranscripts(doc: Y.Doc): string[] {
+  const cleared = new Set<string>();
+  doc.transact(() => {
+    for (const key of [...doc.share.keys()]) {
+      if (key.startsWith(LIVE_TRANSCRIPT_SEGMENTS_PREFIX)) {
+        const segments = doc.getArray(key);
+        if (segments.length === 0) continue;
+        segments.delete(0, segments.length);
+        cleared.add(key.slice(LIVE_TRANSCRIPT_SEGMENTS_PREFIX.length));
+      } else if (key.startsWith(LIVE_TRANSCRIPT_PREFIX)) {
+        const legacy = doc.getText(key);
+        if (legacy.length === 0) continue;
+        legacy.delete(0, legacy.length);
+        cleared.add(key.slice(LIVE_TRANSCRIPT_PREFIX.length));
+      }
+    }
+  });
+  return [...cleared].sort();
+}
