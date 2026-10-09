@@ -158,6 +158,16 @@ export interface AppStrings {
   selectItemLabel: string;
   sourceChangedWarning: string;
   agentThinking: string;
+  toolActivityLookup: string;
+  toolActivityReferenceFound: string;
+  toolActivitySetTranslations: string;
+  toolActivityReviseTranslation: string;
+  toolActivityUnknown: string;
+  toolActivityDetails: string;
+  toolActivityComplete: string;
+  toolActivityRunning: string;
+  toolActivityNoResult: string;
+  toolActivityFailed: string;
   // Landing page (issue #133). Card subtitles render in the *card's* language, not the
   // page's, so a Spanish speaker on an English phone reads "Diapositivas…" under Español.
   landingTagline: string;
@@ -298,6 +308,16 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     selectItemLabel: 'Service item',
     sourceChangedWarning: 'Source slides changed since this was translated.',
     agentThinking: 'Agent is working…',
+    toolActivityLookup: 'Looked up {reference}',
+    toolActivityReferenceFound: 'Available in {languages}',
+    toolActivitySetTranslations: 'Prepared translations for {languages}',
+    toolActivityReviseTranslation: 'Updated {language}, slide {slide}',
+    toolActivityUnknown: 'Used {tool}',
+    toolActivityDetails: 'Technical details',
+    toolActivityComplete: 'Completed',
+    toolActivityRunning: 'In progress',
+    toolActivityNoResult: 'No result recorded',
+    toolActivityFailed: 'Failed',
     landingTagline: 'Live translation for today\'s service. Pick your language.',
     landingCardSource: 'Read along, or listen',
     landingCardSlidesAndAudio: 'Slides and live audio',
@@ -432,6 +452,16 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     selectItemLabel: 'Élément du service',
     sourceChangedWarning: 'Les diapositives source ont changé depuis cette traduction.',
     agentThinking: 'L’agent travaille…',
+    toolActivityLookup: 'Référence consultée : {reference}',
+    toolActivityReferenceFound: 'Disponible en {languages}',
+    toolActivitySetTranslations: 'Traductions préparées pour {languages}',
+    toolActivityReviseTranslation: '{language} mis à jour, diapositive {slide}',
+    toolActivityUnknown: 'Outil utilisé : {tool}',
+    toolActivityDetails: 'Détails techniques',
+    toolActivityComplete: 'Terminé',
+    toolActivityRunning: 'En cours',
+    toolActivityNoResult: 'Aucun résultat enregistré',
+    toolActivityFailed: 'Échec',
     landingTagline: 'Traduction en direct du culte d\'aujourd\'hui. Choisissez votre langue.',
     landingCardSource: 'Lire, ou écouter',
     landingCardSlidesAndAudio: 'Diapositives et audio en direct',
@@ -566,6 +596,16 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     selectItemLabel: 'Elemento del servicio',
     sourceChangedWarning: 'Las diapositivas de origen cambiaron desde esta traducción.',
     agentThinking: 'El agente está trabajando…',
+    toolActivityLookup: 'Referencia consultada: {reference}',
+    toolActivityReferenceFound: 'Disponible en {languages}',
+    toolActivitySetTranslations: 'Traducciones preparadas para {languages}',
+    toolActivityReviseTranslation: '{language} actualizado, diapositiva {slide}',
+    toolActivityUnknown: 'Herramienta utilizada: {tool}',
+    toolActivityDetails: 'Detalles técnicos',
+    toolActivityComplete: 'Completado',
+    toolActivityRunning: 'En curso',
+    toolActivityNoResult: 'No se registró ningún resultado',
+    toolActivityFailed: 'Error',
     landingTagline: 'Traducción en vivo del culto de hoy. Elija su idioma.',
     landingCardSource: 'Leer, o escuchar',
     landingCardSlidesAndAudio: 'Diapositivas y audio en vivo',
@@ -700,6 +740,16 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     selectItemLabel: 'Eleman sèvis la',
     sourceChangedWarning: 'Diapozitiv sous yo chanje depi tradiksyon sa a.',
     agentThinking: 'Ajan an ap travay…',
+    toolActivityLookup: 'Referans chèche: {reference}',
+    toolActivityReferenceFound: 'Disponib nan {languages}',
+    toolActivitySetTranslations: 'Tradiksyon prepare pou {languages}',
+    toolActivityReviseTranslation: '{language} mete ajou, diapozitiv {slide}',
+    toolActivityUnknown: 'Zouti itilize: {tool}',
+    toolActivityDetails: 'Detay teknik',
+    toolActivityComplete: 'Fini',
+    toolActivityRunning: 'Ap fèt',
+    toolActivityNoResult: 'Pa gen rezilta ki anrejistre',
+    toolActivityFailed: 'Echèk',
     landingTagline: 'Tradiksyon an dirèk pou sèvis jodi a. Chwazi lang ou.',
     landingCardSource: 'Li, oswa koute',
     landingCardSlidesAndAudio: 'Dyapozitiv ak odyo an dirèk',

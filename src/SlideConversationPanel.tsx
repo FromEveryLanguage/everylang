@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Content, SlideConversation, TokenUsage } from './slideTranslationApi';
-import { chipClass, primaryButtonClass, subtleTextClass } from './slideReviewStyles';
+import { primaryButtonClass, subtleTextClass } from './slideReviewStyles';
 import { useStrings } from './useLocale';
 
 /**
@@ -12,12 +12,19 @@ import { useStrings } from './useLocale';
 
 type Part = NonNullable<Content['parts']>[number];
 
-function partKey(prefix: string, i: number): string {
-  return `${prefix}-${i}`;
+type ToolCall = NonNullable<Part['functionCall']>;
+type ToolResponse = NonNullable<Part['functionResponse']>;
+
+type ConversationEntry =
+  | { kind: 'text'; key: string; role: string; text: string }
+  | { kind: 'tool'; key: string; call?: ToolCall; response?: ToolResponse };
+
+function interpolate(template: string, values: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (_, key: string) => String(values[key] ?? ''));
 }
 
 /** Short, human-readable summary of a function call. */
-function summarizeCall(call: NonNullable<Part['functionCall']>): string {
+function summarizeCall(call: ToolCall, s: ReturnType<typeof useStrings>): string {
   const args = (call.args ?? {}) as {
     book?: string;
     chapter?: number;
@@ -26,7 +33,6 @@ function summarizeCall(call: NonNullable<Part['functionCall']>): string {
     languages?: Array<{ language?: string; segments?: unknown[] }>;
     language?: string;
     segmentId?: number;
-    find?: string;
   };
   if (call.name === 'lookup_bible_passage') {
     const book = args.book ?? '';
@@ -34,78 +40,132 @@ function summarizeCall(call: NonNullable<Part['functionCall']>): string {
     const start = args.startVerse;
     const end = args.endVerse;
     const verses = start ? `:${start}${end && end !== start ? `-${end}` : ''}` : '';
-    return `📖 ${book} ${chapter}${verses}`.trim();
+    const reference = `${book} ${chapter}${verses}`.trim();
+    return interpolate(s.toolActivityLookup, { reference });
   }
   if (call.name === 'set_translations') {
     const langs = args.languages ?? [];
-    const summary = langs
-      .map((l) => `${l.language ?? '?'} (${l.segments?.length ?? 0})`)
-      .join(', ');
-    return `✍️ set translations: ${summary}`;
+    const languages = langs.map((l) => l.language ?? '?').join(', ');
+    return interpolate(s.toolActivitySetTranslations, { languages });
   }
   if (call.name === 'revise_translation') {
-    // Show what was targeted, not the replacement — the new text lands in the grid anyway.
-    const find = (args.find ?? '').replace(/\s+/g, ' ').trim();
-    const excerpt = find.length > 40 ? `${find.slice(0, 40)}…` : find;
-    return `✏️ edit ${args.language ?? '?'} slide ${(args.segmentId ?? 0) + 1}: "${excerpt}"`;
+    return interpolate(s.toolActivityReviseTranslation, {
+      language: args.language ?? '?',
+      slide: (args.segmentId ?? 0) + 1,
+    });
   }
-  return `🔧 ${call.name ?? 'tool'}`;
+  return interpolate(s.toolActivityUnknown, { tool: call.name ?? 'tool' });
 }
 
-/** Short summary of a tool result (Bible passages found/missing, or set_translations ack). */
-function summarizeResponse(resp: NonNullable<Part['functionResponse']>): string | null {
+/** Short summary of a tool result; successful edits are visible in the translation grid. */
+function summarizeResponse(resp: ToolResponse, s: ReturnType<typeof useStrings>): string {
   const response = (resp.response ?? {}) as {
     error?: string;
     reference?: string;
     passages?: Record<string, string>;
   };
+  if (typeof response.error === 'string') {
+    return `${s.toolActivityFailed}: ${response.error}`;
+  }
   if (resp.name === 'lookup_bible_passage') {
-    if (response.error) return `⚠ ${response.error}`;
     const passages = response.passages ?? {};
     const langs = Object.keys(passages);
-    return langs.length ? `✓ ${response.reference ?? ''} — ${langs.join(', ')}` : null;
+    if (langs.length) {
+      return interpolate(s.toolActivityReferenceFound, { languages: langs.join(', ') });
+    }
   }
-  // A failed targeted edit is worth showing: it means the agent's "find" missed, and the
-  // retry that follows is otherwise unexplained.
-  if (resp.name === 'revise_translation' && response.error) return `⚠ ${response.error}`;
-  return null; // successful acks and unknowns add no useful detail
+  return s.toolActivityComplete;
 }
 
-function MessageParts({ message, msgKey }: { message: Content; msgKey: string }) {
-  const parts = message.parts ?? [];
-  const rendered = parts
-    .map((part, i) => {
-      if (part.thought) return null;
+function buildConversationEntries(messages: Content[]): ConversationEntry[] {
+  const entries: ConversationEntry[] = [];
+  const pendingCalls: Extract<ConversationEntry, { kind: 'tool' }>[] = [];
+
+  messages.forEach((message, messageIndex) => {
+    (message.parts ?? []).forEach((part, partIndex) => {
+      if (part.thought) return;
+
+      const key = `m${messageIndex}-p${partIndex}`;
       if (part.functionCall) {
-        return (
-          <span
-            key={partKey(`${msgKey}-call`, i)}
-            className="inline-block px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200 text-xs font-mono"
-          >
-            {summarizeCall(part.functionCall)}
-          </span>
-        );
+        const entry: Extract<ConversationEntry, { kind: 'tool' }> = {
+          kind: 'tool',
+          key,
+          call: part.functionCall,
+        };
+        entries.push(entry);
+        pendingCalls.push(entry);
+        return;
       }
       if (part.functionResponse) {
-        const summary = summarizeResponse(part.functionResponse);
-        if (!summary) return null;
-        return (
-          <span key={partKey(`${msgKey}-resp`, i)} className={chipClass}>
-            {summary}
-          </span>
+        const pendingIndex = pendingCalls.findIndex(
+          (entry) => entry.call?.name === part.functionResponse?.name,
         );
+        if (pendingIndex >= 0) {
+          pendingCalls[pendingIndex].response = part.functionResponse;
+          pendingCalls.splice(pendingIndex, 1);
+        } else {
+          entries.push({ kind: 'tool', key, response: part.functionResponse });
+        }
+        return;
       }
+
       const text = (part.text ?? '').trim();
-      if (!text) return null;
-      return (
-        <p key={partKey(`${msgKey}-text`, i)} className="whitespace-pre-wrap text-sm">
-          {text}
-        </p>
-      );
-    })
-    .filter(Boolean);
-  if (rendered.length === 0) return null;
-  return <div className="flex flex-col gap-1">{rendered}</div>;
+      if (text) entries.push({ kind: 'text', key, role: message.role ?? 'user', text });
+    });
+  });
+
+  return entries;
+}
+
+function ToolActivity({
+  entry,
+  conversationRunning,
+  s,
+}: {
+  entry: Extract<ConversationEntry, { kind: 'tool' }>;
+  conversationRunning: boolean;
+  s: ReturnType<typeof useStrings>;
+}) {
+  const summary = entry.call
+    ? summarizeCall(entry.call, s)
+    : interpolate(s.toolActivityUnknown, { tool: entry.response?.name ?? 'tool' });
+  const result = entry.response ? summarizeResponse(entry.response, s) : undefined;
+  const hasError = result?.startsWith(`${s.toolActivityFailed}:`) ?? false;
+  const status = result ?? (conversationRunning ? s.toolActivityRunning : s.toolActivityNoResult);
+  const callArgs = entry.call?.args;
+  const responseBody = entry.response?.response;
+
+  return (
+    <li
+      className={`rounded border px-2 py-1.5 text-sm ${
+        hasError
+          ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200'
+          : 'border-gray-200 bg-white text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className="font-medium">{summary}</span>
+        <span className={`shrink-0 text-xs ${hasError ? '' : 'text-gray-500 dark:text-gray-400'}`}>
+          {status}
+        </span>
+      </div>
+      {(callArgs !== undefined || responseBody !== undefined) && (
+        <details className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          <summary className="cursor-pointer">{s.toolActivityDetails}</summary>
+          {callArgs !== undefined && (
+            <pre className="mt-1 overflow-auto whitespace-pre-wrap break-words">
+              {JSON.stringify(callArgs, null, 2)}
+            </pre>
+          )}
+          {responseBody !== undefined && (
+            <pre className="mt-1 overflow-auto whitespace-pre-wrap break-words">
+              {JSON.stringify(responseBody, null, 2)}
+            </pre>
+          )}
+        </details>
+      )}
+    </li>
+  );
 }
 
 /**
@@ -150,7 +210,7 @@ export function SlideConversationPanel({
 
   // Skip the first message: it's the constructed translation prompt (the big slides blob),
   // not something a reviewer needs to read.
-  const visible = (conversation?.messages ?? []).slice(1);
+  const visible = buildConversationEntries((conversation?.messages ?? []).slice(1));
 
   const handleSend = () => {
     const text = draft.trim();
@@ -179,20 +239,27 @@ export function SlideConversationPanel({
         <p className={subtleTextClass}>{s.noConversation}</p>
       ) : (
         <ul className="flex flex-col gap-2 max-h-72 overflow-auto">
-          {visible.map((message, i) => {
-            const isModel = message.role === 'model';
-            const content = <MessageParts message={message} msgKey={`m${i}`} />;
-            if (!content) return null;
+          {visible.map((entry) => {
+            if (entry.kind === 'tool') {
+              return (
+                <ToolActivity
+                  key={entry.key}
+                  entry={entry}
+                  conversationRunning={conversation?.status === 'running'}
+                  s={s}
+                />
+              );
+            }
             return (
               <li
-                key={`m${i}`}
-                className={`rounded p-2 text-gray-800 dark:text-gray-100 ${
-                  isModel
-                    ? 'bg-gray-100 dark:bg-gray-800'
-                    : 'bg-blue-50 dark:bg-blue-950 ml-6'
+                key={entry.key}
+                className={`max-w-[90%] rounded p-2 text-sm whitespace-pre-wrap text-gray-800 dark:text-gray-100 ${
+                  entry.role === 'model'
+                    ? 'self-start bg-gray-100 dark:bg-gray-800'
+                    : 'self-end bg-blue-50 dark:bg-blue-950'
                 }`}
               >
-                {content}
+                {entry.text}
               </li>
             );
           })}
