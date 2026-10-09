@@ -79,7 +79,7 @@ generate_plist() {
     sed "s|{{POSTHOG_KEY}}|$POSTHOG_KEY|g" | \
     sed "s|{{POSTHOG_HOST}}|$POSTHOG_HOST|g" | \
     sed "s|{{WRITE_KEY}}|$(sed_escape "$WRITE_KEY")|g" | \
-    sed "s|{{YSWEET_URL}}|$SERVER_URL|g"
+    sed "s|{{SERVER_URL}}|$SERVER_URL|g"
 }
 
 uninstall() {

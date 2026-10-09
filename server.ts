@@ -45,6 +45,8 @@ import {
 } from './writeAuthRoutes.ts';
 import { SessionRegistry } from './sessionRegistry.ts';
 import { makeSessionRouter } from './sessionRoutes.ts';
+import { makeSlideSnapshotRouter } from './slideSnapshotRoutes.ts';
+import { languages as FRONTEND_LANGUAGES } from './src/translationLanguages.ts';
 import { limitFromEnv, makeRateLimit } from './rateLimit.ts';
 
 // Get API keys from environment variables, crash if not set
@@ -330,6 +332,10 @@ app.use(express.static("dist", {
     }
   },
 }));
+// A Proclaim snapshot is the whole service order, every slide of every item plus each item's
+// own translation screen, and the default 100kb is within reach of a long service. Registered
+// first so this route's body is parsed with the larger limit (the general parser then skips it).
+app.use('/api/proclaim', express.json({ limit: '5mb' }));
 app.use(express.json());
 app.use('/audio-cache', express.static(AUDIO_CACHE_DIR));
 
@@ -384,6 +390,49 @@ app.use(
     registry: sessionRegistry,
     requireWriteKey,
     log: (message) => console.log(message),
+  }),
+);
+
+// The Proclaim feed (ADR-001): the service posts what Proclaim shows; publishing it into the
+// session doc and translating ahead happen here, against a synced doc, in one process.
+// Languages to translate slides into ahead of time. Defaults to the frontend's picker, which
+// is what viewers can choose and therefore what is worth paying for.
+const SLIDE_TRANSLATION_LANGUAGES = (process.env.SLIDE_TRANSLATION_LANGUAGES ?? FRONTEND_LANGUAGES.join(','))
+  .split(',')
+  .map((language) => language.trim())
+  .filter(Boolean);
+console.log(`[slides] translating ahead into: ${SLIDE_TRANSLATION_LANGUAGES.join(', ') || '(none)'}`);
+app.use(
+  '/api/proclaim',
+  makeSlideSnapshotRouter({
+    registry: sessionRegistry,
+    writeAuth,
+    getDoc: (docId) => slideConversations.getDoc(docId),
+    languages: SLIDE_TRANSLATION_LANGUAGES,
+    translate: async ({ slides, itemTitle, itemId, existingTranslation, docId }) => {
+      try {
+        const { translations } = await draftItem({
+          slides,
+          languages: SLIDE_TRANSLATION_LANGUAGES,
+          docId,
+          existingTranslation: existingTranslation ?? undefined,
+          itemTitle: itemTitle && itemTitle !== 'Unknown' ? itemTitle : undefined,
+          itemId,
+          source: 'translateAhead',
+        });
+        console.log(`[slides] translated ahead: ${itemId} (${itemTitle}) into ${docId}`);
+        return translations;
+      } catch (err) {
+        console.warn(`[slides] translate-ahead failed for ${itemId} (${itemTitle}):`, err);
+        if (err instanceof Error) phClient.captureException(err);
+        return null;
+      }
+    },
+    log: (message) => console.log(message),
+    onError: (err) => {
+      console.warn('[slides] translate-ahead error:', err);
+      if (err instanceof Error) phClient.captureException(err);
+    },
   }),
 );
 
@@ -687,39 +736,44 @@ app.post('/api/slideLibrary', requireWriteKey('/api/slideLibrary'), async (req, 
   return res.json({ ok: true, record });
 });
 
-// Translate a whole service item, reusing reviewed library entries and filling the rest
-// with one strong-model call for all languages at once. Body:
-// { slides: string[], languages: string[], reference?: string }. `reference` is a free-text
-// dump (possibly multilingual, arbitrarily segmented) the model uses where it covers a
-// target language and ignores otherwise. Returns { translations: { [language]: PerSlideTranslation[] } }.
-app.post('/api/translateItem', requireWriteKey('/api/translateItem'), async (req, res) => {
-  const slides = (req.body?.slides as string[]) ?? [];
-  const requestedLanguages = (req.body?.languages as string[]) ?? [];
-  const reference = (req.body?.reference as string | undefined)?.trim();
-  // An existing translation from the presentation software (possibly machine-generated) —
-  // grounding the model can keep where good and correct where not.
-  const existingTranslation = (req.body?.existingTranslation as string | undefined)?.trim();
-  // Item title (e.g. a Bible citation like "Psalm 23") — a lookup cue the slide text lacks.
-  const itemTitle = (req.body?.itemTitle as string | undefined)?.trim();
-  // Conversation key: the Proclaim itemId when this came from a service item (so the review
-  // screen can find it by itemId), else a content hash for ad-hoc pastes.
-  const itemId = (req.body?.itemId as string | undefined)?.trim();
-  // The per-day doc the conversation belongs to (where the browser reads it live).
-  const docId = (req.body?.docId as string | undefined)?.trim();
-  if (!Array.isArray(slides) || requestedLanguages.length === 0) {
-    return res.status(400).json({ ok: false, error: 'Missing slides or languages' });
-  }
-  
-  if (!docId) return res.status(400).json({ ok: false, error: 'Missing docId' });
-
+/**
+ * Translate a whole service item, reusing reviewed library entries and filling the rest with
+ * one strong-model call for all languages at once, and record the agent conversation in the
+ * session doc for the review screen. Shared by `/api/translateItem` (the review screen's
+ * "draft") and the server's own translate-ahead worker for the Proclaim feed.
+ *
+ * `reference` is a free-text dump (possibly multilingual, arbitrarily segmented) the model
+ * uses where it covers a target language. `existingTranslation` is the presentation
+ * software's own translation — grounding the model can keep where good and correct where
+ * not. `itemTitle` (e.g. "Psalm 23") is a lookup cue the slide text lacks. `itemId` keys the
+ * conversation so the review screen can find it; ad-hoc pastes fall back to a content hash.
+ */
+async function draftItem({
+  slides,
+  languages: requestedLanguages,
+  docId,
+  reference,
+  existingTranslation,
+  itemTitle,
+  itemId,
+  source,
+}: {
+  slides: string[];
+  languages: string[];
+  docId: string;
+  reference?: string;
+  existingTranslation?: string;
+  itemTitle?: string;
+  itemId?: string;
+  source: string;
+}) {
   // Stable conversation id up front so it can tag the LLM trace (and any bible_lookup events)
   // as the agent runs — this is what makes a conversation's generations group in PostHog.
   const conversationId = conversationKey(itemId, slides);
   const observability = slideObservability(conversationId, docId, {
     itemTitle: itemTitle || undefined,
-    source: 'translateItem',
+    source,
   });
-
   const lookup = slideLibrary.toLookup();
   // The raw agent history, captured so we can persist it for review + follow-ups.
   let conversationMessages: Content[] = [];
@@ -778,7 +832,32 @@ app.post('/api/translateItem', requireWriteKey('/api/translateItem'), async (req
     usage,
   });
 
-  return res.json({ ok: true, translations, conversationId });
+  return { translations, conversationId };
+}
+
+// The review screen's "draft" for one item. Body: { slides, languages, docId, reference?,
+// existingTranslation?, itemTitle?, itemId? } — see draftItem.
+app.post('/api/translateItem', requireWriteKey('/api/translateItem'), async (req, res) => {
+  const slides = (req.body?.slides as string[]) ?? [];
+  const requestedLanguages = (req.body?.languages as string[]) ?? [];
+  // The per-day doc the conversation belongs to (where the browser reads it live).
+  const docId = (req.body?.docId as string | undefined)?.trim();
+  if (!Array.isArray(slides) || requestedLanguages.length === 0) {
+    return res.status(400).json({ ok: false, error: 'Missing slides or languages' });
+  }
+  if (!docId) return res.status(400).json({ ok: false, error: 'Missing docId' });
+
+  const result = await draftItem({
+    slides,
+    languages: requestedLanguages,
+    docId,
+    reference: (req.body?.reference as string | undefined)?.trim(),
+    existingTranslation: (req.body?.existingTranslation as string | undefined)?.trim(),
+    itemTitle: (req.body?.itemTitle as string | undefined)?.trim(),
+    itemId: (req.body?.itemId as string | undefined)?.trim(),
+    source: 'translateItem',
+  });
+  return res.json({ ok: true, ...result });
 });
 
 // The review screen reads the conversation live from the `slideConversations` Y.Map in its

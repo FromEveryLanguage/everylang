@@ -6,17 +6,17 @@ consumers react to, so it can later be replayed to drive the **real** consumers 
 Proclaim (or even no network) in the loop. This is the "simulated proclaim" mode of the replay
 harness, and the basis for a consumer regression test.
 
-Three roles share one dead-simple on-disk format (JSONL, one record per line):
+Two roles share one dead-simple on-disk format (JSONL, one record per line):
 
 - ``RecordingSlideFeed`` wraps a live feed and appends each polled snapshot; drop it in via
   ``proclaim_service.py --record PATH`` during a live service. It changes nothing the consumers
   see — the same snapshot is returned unmodified.
 - ``ReplaySlideFeed`` re-emits a recorded stream *as* a ``SlideFeed``, honoring the recorded
-  inter-snapshot timing (scaled), so the existing ``SlideSyncRuntime`` can replay a fixture
-  against a real Y-Sweet unchanged (``proclaim_service.py --replay PATH``).
-- ``replay_records_through_consumers`` plays a recording straight through a real
-  ``YjsSlidePublisher`` + ``SlideTranslator`` on a local Doc and returns it — the offline,
-  network-free path used by the replay regression test.
+  inter-snapshot timing (scaled), so the ordinary pusher can replay a fixture against a real
+  server unchanged (``proclaim_service.py --replay PATH``).
+
+The consumers now live on the server, so the offline consumer regression replays the
+committed fixture there (``slideSnapshotRoutes.test.ts``).
 
 Record line schema (one JSON object per line)::
 
@@ -49,7 +49,7 @@ from typing import (
 
 import anyio
 
-from slide_feed import FeedSnapshot, SessionInfo, SlideFeed, SnapshotBus
+from slide_feed import FeedSnapshot, SessionInfo, SlideFeed
 
 logger = logging.getLogger(__name__)
 
@@ -146,12 +146,12 @@ def _off_air_after(records: List[SnapshotRecord]) -> FeedSnapshot:
 
 
 class ReplaySlideFeed:
-    """Re-emit a recorded snapshot stream as a ``SlideFeed`` for ``SlideSyncRuntime``.
+    """Re-emit a recorded snapshot stream as a ``SlideFeed``.
 
     Honors the recorded inter-snapshot timing (scaled by ``time_scale``) so a replay against a
     real Y-Sweet reproduces the original slide-change cadence; ``time_scale=0`` replays as fast
     as possible (used by tests). When the stream is exhausted it reports off air — the natural
-    "service ended" — which makes the runtime disconnect, and it keeps returning off air
+    "service ended" — and it keeps returning off air
     thereafter. ``reset`` is a no-op: a replay is a fixed stream, not a live source with caches.
 
     ``clock``/``sleep`` are injectable so timing can be driven deterministically in tests.
@@ -193,78 +193,3 @@ class ReplaySlideFeed:
 
     def reset(self) -> None:
         pass
-
-
-def _expected_translation_keys(
-    records: List[SnapshotRecord], languages: List[str]
-) -> List[str]:
-    """Every (language, non-empty slide) key the translator should eventually cover."""
-    from proclaim_lib import slide_translation_key
-
-    keys: List[str] = []
-    seen = set()
-    for record in records:
-        for item in record.snapshot.items.values():
-            for slide in item.slides:
-                if not slide.strip():
-                    continue
-                for language in languages:
-                    key = slide_translation_key(language, slide)
-                    if key not in seen:
-                        seen.add(key)
-                        keys.append(key)
-    return keys
-
-
-async def replay_records_through_consumers(
-    records: List[SnapshotRecord],
-    languages: List[str],
-    translate_fn: Callable[..., Awaitable[Optional[Dict[str, Any]]]],
-    *,
-    doc: Optional[Any] = None,
-    time_scale: float = 0.0,
-    scan_interval: float = 0.001,
-    settle_timeout: float = 5.0,
-) -> Any:
-    """Replay a recording through the REAL consumers on one Doc; return the Doc.
-
-    Mirrors the runtime's per-cycle fan-out — ``publisher.apply`` inline plus ``bus.publish``
-    to wake the translator, and (like the runtime) applies **only on-air snapshots** — without
-    any Y-Sweet or Proclaim. Waits until the translator has covered every slide seen in the
-    recording (or ``settle_timeout`` elapses) before returning, so callers can assert a settled
-    end-state. Network-free; this is the offline half of the "simulated proclaim" mode and the
-    engine of the replay regression test.
-    """
-    from pycrdt import Doc
-
-    from slide_translator import SlideTranslator
-    from yjs_publisher import YjsSlidePublisher
-
-    doc = doc if doc is not None else Doc()
-    publisher = YjsSlidePublisher()
-    publisher.bind(doc)
-    translator = SlideTranslator(translate_fn, languages, scan_interval=scan_interval)
-    translator.bind(doc)
-    feed = ReplaySlideFeed(records, time_scale=time_scale)
-    bus = SnapshotBus()
-
-    expected = _expected_translation_keys(records, languages)
-
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(translator.run, bus)
-
-        for _ in range(len(records)):
-            snap = await feed.poll()
-            if not snap.on_air:
-                continue  # off-air (lead-in / end) drives no consumer writes, as in the runtime
-            publisher.apply(snap)
-            bus.publish(snap)
-
-        if expected:
-            with anyio.move_on_after(settle_timeout):
-                while not all(k in translator.translations_map for k in expected):
-                    await anyio.sleep(scan_interval)
-
-        tg.cancel_scope.cancel()
-
-    return doc

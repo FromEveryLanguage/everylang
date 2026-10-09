@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
-"""Proclaim Service entrypoint - syncs Proclaim presentation data to Yjs.
+"""Proclaim Service entrypoint - reads Proclaim and hands what it shows to the server.
 
 This is the thin wiring layer. The work is split across:
 - ``proclaim_feed.ProclaimFeed`` - the slide *source* (Proclaim HTTP API + SQLite DB),
   emitting a serializable ``FeedSnapshot`` each poll.
-- ``yjs_publisher.YjsSlidePublisher`` - the client consumer (writes the Yjs maps browsers read).
-- ``slide_translator.SlideTranslator`` - the translation consumer (seeds ``slideTranslations``).
-- ``slide_sync_runtime.SlideSyncRuntime`` - the source-agnostic lifecycle: doc rollover,
-  Y-Sweet connect/reconnect, and the per-cycle fan-out to both consumers.
+- ``snapshot_pusher.HttpSnapshotPusher`` - POSTs each snapshot to the app server, which
+  decides the doc, publishes the slides, and translates ahead (ADR-001). This process has no
+  Yjs connection at all.
 
-This module owns the environment/config, logging + telemetry, and the injected translation
-HTTP call; it builds the pieces and runs the runtime.
+This module owns the environment/config, logging + telemetry, and the version report.
 
 Protocol documentation for the Proclaim local API lives in ``proclaim_feed.py``.
 """
@@ -22,13 +20,10 @@ import signal
 import socket
 import subprocess
 import time
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import anyio
-import httpx
-from pycrdt import Doc, Map
 from posthog import Posthog
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
@@ -38,10 +33,8 @@ from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from proclaim_feed import DEFAULT_PROCLAIM_BASE_URL, ProclaimFeed
 from slide_feed import SlideFeed
 from slide_replay import RecordingSlideFeed, ReplaySlideFeed, load_records
-from slide_sync_runtime import RuntimeTiming, SlideSyncRuntime
-from write_key import get_write_key, write_key_headers
-from slide_translator import SlideTranslator
-from yjs_publisher import YjsSlidePublisher
+from snapshot_pusher import HttpSnapshotPusher, PusherTiming
+from write_key import get_write_key
 
 # Configure logging (default level, can be overridden by --debug flag)
 logging.basicConfig(
@@ -55,10 +48,13 @@ logging.getLogger('httpx').setLevel(logging.WARNING)
 
 # Configuration
 PROCLAIM_BASE_URL = os.getenv('PROCLAIM_BASE_URL', DEFAULT_PROCLAIM_BASE_URL)
-YSWEET_URL = os.getenv('YSWEET_URL', '')
-assert YSWEET_URL, "YSWEET_URL must be set"
-# Shared key identifying this machine to the server's privileged endpoints (full Y-Sweet
-# tokens, /api/translateItem). Installed into the LaunchAgent plist by
+# The app server (Express), *not* Y-Sweet: this service no longer talks to Y-Sweet at all.
+# Installs from before the rename have it baked into their plist as YSWEET_URL, and
+# auto-update never rewrites the plist, so that name has to keep working.
+SERVER_URL = os.getenv('SERVER_URL') or os.getenv('YSWEET_URL') or ''
+assert SERVER_URL, "SERVER_URL must be set (the app server's URL)"
+# Shared key identifying this machine to the server's privileged endpoints (the snapshot
+# POST). Installed into the LaunchAgent plist by
 # install_proclaim_service.sh --write-key=. Optional while the server runs in observe mode.
 WRITE_KEY = get_write_key()
 POLL_INTERVAL = float(os.getenv('PROCLAIM_POLL_INTERVAL', '0.5'))  # seconds
@@ -67,23 +63,10 @@ POLL_INTERVAL_OFF_AIR = float(os.getenv('PROCLAIM_POLL_INTERVAL_OFF_AIR', '10'))
 # Proclaim localRevision is unchanged are not re-parsed, so this is cheap; the interval just
 # bounds how quickly a slide edited underneath us is picked up.
 SERVICE_ORDER_SYNC_INTERVAL = float(os.getenv('PROCLAIM_SERVICE_ORDER_SYNC_INTERVAL', '2.0'))  # seconds
-# How long the background translation worker idles when there's nothing left to translate.
-TRANSLATION_SCAN_INTERVAL = float(os.getenv('PROCLAIM_TRANSLATION_SCAN_INTERVAL', '1.0'))  # seconds
-# Target languages to pre-translate slides into (must match the frontend's configured
-# languages). The translator asks the server to translate the active item into these and
-# writes the reviewed-or-auto results into the per-day slideTranslations map.
-SLIDE_TRANSLATION_LANGUAGES = [
-    lang.strip()
-    for lang in os.getenv('SLIDE_TRANSLATION_LANGUAGES', 'French,Haitian Creole,Spanish').split(',')
-    if lang.strip()
-]
-
-# Connection robustness tuning (see slide_sync_runtime.RuntimeTiming for what these gate).
-RECONNECT_BACKOFF_INITIAL = float(os.getenv('PROCLAIM_RECONNECT_BACKOFF_INITIAL', '1.0'))  # seconds
-RECONNECT_BACKOFF_MAX = float(os.getenv('PROCLAIM_RECONNECT_BACKOFF_MAX', '30.0'))  # seconds
-OFF_AIR_DISCONNECT_AFTER = float(os.getenv('PROCLAIM_OFF_AIR_DISCONNECT_AFTER', '60'))  # seconds
-WS_PING_INTERVAL = float(os.getenv('PROCLAIM_WS_PING_INTERVAL', '15'))  # seconds
-YSWEET_TOKEN_TIMEOUT = float(os.getenv('PROCLAIM_YSWEET_TOKEN_TIMEOUT', '30'))  # seconds
+# Send an unchanged snapshot this often anyway, as the service's heartbeat.
+HEARTBEAT_INTERVAL = float(os.getenv('PROCLAIM_HEARTBEAT_INTERVAL', '10'))  # seconds
+RETRY_BACKOFF_INITIAL = float(os.getenv('PROCLAIM_RECONNECT_BACKOFF_INITIAL', '1.0'))  # seconds
+RETRY_BACKOFF_MAX = float(os.getenv('PROCLAIM_RECONNECT_BACKOFF_MAX', '30.0'))  # seconds
 
 _POSTHOG_KEY = os.getenv('POSTHOG_API_KEY', '')
 _POSTHOG_HOST = os.getenv('POSTHOG_HOST', 'https://us.i.posthog.com')
@@ -166,104 +149,6 @@ def service_version_info(env: Optional[Dict[str, str]] = None) -> Dict[str, Any]
     }
 
 
-def make_status_announcer(
-    version_info: Optional[Dict[str, Any]] = None,
-) -> Callable[[Doc, str], None]:
-    """Build the runtime's per-session announcement into the shared `status` map (#72/#73).
-
-    The version is resolved once, at startup: the launch wrapper's fetch is what makes
-    `channelSha` meaningful, and that happened before this process existed. The runtime
-    calls the returned function on every fresh connection (a doc rollover creates a new
-    Doc, so each session needs its own announcement). The clientId lets a delta recorder
-    attribute updates to this writer; the version fields drive the status view's
-    "update pending: restart the service" flag.
-    """
-    info = service_version_info() if version_info is None else version_info
-    started_at = datetime.now(timezone.utc).isoformat()
-
-    def announce(doc: Doc, doc_id: str) -> None:
-        entry = {
-            **info,
-            'role': 'proclaim-service',
-            # The doc this service is actually writing to. #111 was invisible because
-            # nothing anyone could see said this; now it is in the status map the /status
-            # screen reads, next to the doc that screen itself is on.
-            'docId': doc_id,
-            'clientId': doc.client_id,
-            'host': socket.gethostname(),
-            'startedAt': started_at,
-            'connectedAt': datetime.now(timezone.utc).isoformat(),
-        }
-        with doc.transaction():
-            doc.get('status', type=Map)['proclaimService'] = entry
-
-        pending = ' (update pending — restart to pick it up)' if entry['updatePending'] else ''
-        logger.info(
-            f"Reporting version {entry['gitShaShort'] or 'unknown'} "
-            f"on {entry['gitBranch'] or 'unknown'}{pending}"
-        )
-
-    return announce
-
-
-def make_translate_fn(ysweet_url: str, languages: List[str], write_key: Optional[str] = None):
-    """Build the translation call the SlideTranslator injects: POST /api/translateItem.
-
-    Returns the ``{language: [{text, status, provenance}, ...]}`` map, or None on failure
-    (translation is best-effort; a failure must not drop the session).
-    """
-    async def translate(
-        slides: List[str],
-        item_title: Optional[str],
-        item_id: Optional[str],
-        existing_translation: Optional[str],
-        doc_id: Optional[str],
-    ) -> Optional[Dict[str, Any]]:
-        if not slides or not languages:
-            return None
-        body: Dict[str, Any] = {"slides": slides, "languages": languages}
-        # docId names the per-day doc the server writes the agent conversation into (the
-        # same doc this session is connected to).
-        if doc_id:
-            body["docId"] = doc_id
-        if item_title and item_title != "Unknown":
-            body["itemTitle"] = item_title
-        if item_id:
-            body["itemId"] = item_id
-        if existing_translation:
-            body["existingTranslation"] = existing_translation
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{ysweet_url}/api/translateItem",
-                    json=body,
-                    headers=write_key_headers(write_key),
-                    timeout=3 * 60.0,
-                )
-                response.raise_for_status()
-                return response.json().get('translations')
-        except (httpx.HTTPError, ValueError) as e:
-            # Timeout exceptions stringify to '', so log repr(e) to preserve the type.
-            logger.warning(
-                f"Slide translation request failed for item {item_id} "
-                f"({item_title!r}, {len(slides)} slides): {e!r}"
-            )
-            if ph:
-                ph.capture_exception(
-                    e,
-                    distinct_id=DISTINCT_ID,
-                    properties={
-                        "item_id": item_id,
-                        "item_title": item_title,
-                        "num_slides": len(slides),
-                        "languages": languages,
-                    },
-                )
-            return None
-
-    return translate
-
-
 def _build_feed(
     *,
     record_path: Optional[str],
@@ -292,42 +177,34 @@ def _build_feed(
     return feed
 
 
-def build_runtime(
+def build_pusher(
     doc_id: Optional[str],
     *,
     record_path: Optional[str] = None,
     replay_path: Optional[str] = None,
     replay_speed: float = 1.0,
-) -> SlideSyncRuntime:
-    """Wire the feed + consumers into a runtime from the module configuration."""
+) -> HttpSnapshotPusher:
+    """Wire the feed to the server from the module configuration."""
     feed = _build_feed(
         record_path=record_path, replay_path=replay_path, replay_speed=replay_speed
     )
-    publisher = YjsSlidePublisher()
-    translator = SlideTranslator(
-        translate_fn=make_translate_fn(
-            YSWEET_URL, SLIDE_TRANSLATION_LANGUAGES, write_key=WRITE_KEY
-        ),
-        languages=SLIDE_TRANSLATION_LANGUAGES,
-        scan_interval=TRANSLATION_SCAN_INTERVAL,
-        report_exception=report_exception,
-    )
-    timing = RuntimeTiming(
+    timing = PusherTiming(
         # In replay mode the feed owns the cadence (it honors recorded timing), so don't add
         # the live on-air poll delay on top of it.
         poll_interval=0.0 if replay_path else POLL_INTERVAL,
         poll_interval_off_air=POLL_INTERVAL_OFF_AIR,
-        off_air_disconnect_after=OFF_AIR_DISCONNECT_AFTER,
-        reconnect_backoff_initial=RECONNECT_BACKOFF_INITIAL,
-        reconnect_backoff_max=RECONNECT_BACKOFF_MAX,
-        ws_ping_interval=WS_PING_INTERVAL,
-        ysweet_token_timeout=YSWEET_TOKEN_TIMEOUT,
+        heartbeat_interval=HEARTBEAT_INTERVAL,
+        backoff_initial=RETRY_BACKOFF_INITIAL,
+        backoff_max=RETRY_BACKOFF_MAX,
     )
-    return SlideSyncRuntime(
-        feed, publisher, translator, YSWEET_URL,
-        doc_id=doc_id, timing=timing, report_exception=report_exception,
-        on_session_start=make_status_announcer(),
+    return HttpSnapshotPusher(
+        feed,
+        SERVER_URL,
         write_key=WRITE_KEY,
+        service_info={**service_version_info(), 'host': socket.gethostname()},
+        doc_id=doc_id,
+        timing=timing,
+        report_exception=report_exception,
     )
 
 
@@ -342,7 +219,7 @@ async def signal_handler(cancel_scope: anyio.CancelScope):
 
 async def main():
     """Entry point with signal handling."""
-    parser = argparse.ArgumentParser(description='Proclaim Service - Syncs Proclaim to Yjs')
+    parser = argparse.ArgumentParser(description='Proclaim Service - sends what Proclaim shows to the server')
     parser.add_argument(
         'doc_id',
         nargs='?',
@@ -391,7 +268,10 @@ async def main():
         f"(channel {version_info['updateChannel']})"
     )
 
-    runtime = build_runtime(
+    logger.info(f"Server URL: {SERVER_URL}")
+    if doc_id:
+        logger.info(f"Doc overridden to: {doc_id}")
+    pusher = build_pusher(
         doc_id,
         record_path=args.record,
         replay_path=args.replay,
@@ -399,7 +279,7 @@ async def main():
     )
 
     async with anyio.create_task_group() as tg:
-        tg.start_soon(runtime.run)
+        tg.start_soon(pusher.run)
         tg.start_soon(signal_handler, tg.cancel_scope)
 
 

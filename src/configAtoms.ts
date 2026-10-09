@@ -15,5 +15,5 @@ export const isEditorAtom = atom(false);
  */
 export const editorDeniedAtom = atom(false);
 export const fontSizeAtom = atomWithStorage('fontSize', 20);
-export const languages = ["French", "Haitian Creole", "Spanish"] as const;
+export { languages } from './translationLanguages';
 export const languageAtom = atom<string>("French");

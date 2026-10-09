@@ -3,24 +3,22 @@
 Covers the three roles in ``slide_replay``:
 - ``RecordingSlideFeed`` transparently records what a live feed emits (round-trips through JSON).
 - ``ReplaySlideFeed`` re-emits a recording as a ``SlideFeed``, honoring scaled timing.
-- ``replay_records_through_consumers`` replays the committed synthetic fixture through the
-  **real** ``YjsSlidePublisher`` + ``SlideTranslator`` — the network-free consumer regression.
+
+The consumers now live on the server; ``slideSnapshotRoutes.test.ts`` replays the committed
+fixture through them.
 """
 
+import json
 from pathlib import Path
 
 import anyio
 import pytest
-from pycrdt import Map
-
-from proclaim_lib import slide_translation_key, slides_hash
 from slide_feed import FeedItem, FeedSnapshot, SessionInfo
 from slide_replay import (
     ReplaySlideFeed,
     RecordingSlideFeed,
     SnapshotRecord,
     load_records,
-    replay_records_through_consumers,
 )
 
 from tests.helpers import FakeFeed, on_air_snap, off_air_snap
@@ -28,14 +26,6 @@ from tests.helpers import FakeFeed, on_air_snap, off_air_snap
 pytestmark = pytest.mark.anyio
 
 FIXTURE = Path(__file__).parent / 'fixtures' / 'synthetic_service.jsonl'
-LANGS = ['French', 'Spanish']
-
-
-async def _fake_translate(slides, title, item_id, existing, doc_id):
-    return {
-        lang: [{'text': f'{lang}:{s}', 'status': 'auto', 'provenance': 'llm'} for s in slides]
-        for lang in LANGS
-    }
 
 
 # -- RecordingSlideFeed --------------------------------------------------------
@@ -131,54 +121,9 @@ async def test_replay_feed_empty_is_off_air():
     assert snap.on_air is False
 
 
-# -- End-to-end replay through the real consumers ------------------------------
-
-
-async def test_synthetic_fixture_replays_through_real_consumers():
-    """The committed fixture, replayed through real consumers, settles to the expected doc."""
+def test_synthetic_fixture_loads_and_round_trips():
+    """The committed fixture (which the server-side replay test drives) stays loadable."""
     records = load_records(FIXTURE)
-    doc = await replay_records_through_consumers(records, LANGS, _fake_translate)
-
-    pub_order = doc.get('proclaimServiceOrder', type=Map)
-    presentations = doc.get('proclaimPresentations', type=Map)
-    status = doc.get('proclaimStatus', type=Map)
-    translations = doc.get('slideTranslations', type=Map)
-
-    # Publisher: full order + every presentation, with content hashes intact.
-    assert list(pub_order['order']) == ['welcome', 'song1', 'sermon']
-    assert set(presentations.keys()) == {'welcome', 'song1', 'sermon'}
-    assert presentations['song1']['itemKind'] == 'SongLyrics'
-    assert presentations['welcome']['slidesHash'] == slides_hash(
-        ['Welcome to the service', 'Please stand']
-    )
-
-    # Status reflects the last ON-AIR snapshot (the trailing off-air drives no write).
-    assert status['itemId'] == 'sermon'
-    assert status['slideIndex'] == 1
-
-    # Translator: every non-empty slide × language covered.
-    for item in presentations.values():
-        for slide in item['slides']:
-            for lang in LANGS:
-                key = slide_translation_key(lang, slide)
-                assert key in translations
-                assert translations[key]['text'] == f'{lang}:{slide}'
-
-
-async def test_replay_is_deterministic_across_runs():
-    """Same recording → same settled doc state (the point of a replay regression)."""
-    records = load_records(FIXTURE)
-
-    async def snapshot_of(doc):
-        return {
-            'order': list(doc.get('proclaimServiceOrder', type=Map)['order']),
-            'status': dict(doc.get('proclaimStatus', type=Map).items()),
-            'translations': {
-                k: v['text']
-                for k, v in doc.get('slideTranslations', type=Map).items()
-            },
-        }
-
-    doc_a = await replay_records_through_consumers(records, LANGS, _fake_translate)
-    doc_b = await replay_records_through_consumers(records, LANGS, _fake_translate)
-    assert await snapshot_of(doc_a) == await snapshot_of(doc_b)
+    assert records and records[0].snapshot.on_air is False
+    for record in records:
+        assert SnapshotRecord.from_json_obj(json.loads(record.to_json_line())) == record

@@ -240,9 +240,19 @@ export class SessionRegistry {
    * to a different doc than you're looking at" produced identical symptoms — an empty
    * slide pane — and only one of them is fixable during a service.
    */
-  noteWriter(writer: string, docId: string, now: Date = new Date()): void {
+  noteWriter(
+    writer: string,
+    docId: string,
+    now: Date = new Date(),
+    { standby = false }: { standby?: boolean } = {},
+  ): void {
     if (!isValidDocId(docId)) return;
-    this.writers.set(`${writer} ${docId}`, { writer, docId, at: now.toISOString() });
+    this.writers.set(`${writer}\u0000${docId}`, {
+      writer,
+      docId,
+      at: now.toISOString(),
+      ...(standby ? { standby } : {}),
+    });
   }
 
   /** Recently-seen writers, newest first, dropping anything past {@link WRITER_TTL_MS}. */

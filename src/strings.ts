@@ -109,6 +109,8 @@ export interface AppStrings {
   statusWritersTitle: string;
   statusWritersEmpty: string;
   statusWritersElsewhere: string;
+  /** A slide sender heard from but not shown: off air, or overtaken by another machine. */
+  statusWritersStandby: string;
 
   // Status / admin page (skeleton for #72)
   statusTitle: string;
@@ -253,6 +255,7 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusWritersTitle: 'Who is writing where',
     statusWritersEmpty: 'Nothing has asked to write in the last 15 minutes.',
     statusWritersElsewhere: 'writing to a different session',
+    statusWritersStandby: 'standby (not shown)',
     statusTitle: 'Session status',
     statusHealthTitle: 'Component health',
     statusHealthPlaceholder: 'Live component heartbeats will appear here.',
@@ -386,6 +389,7 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusWritersTitle: 'Qui écrit où',
     statusWritersEmpty: 'Aucune demande d’écriture depuis 15 minutes.',
     statusWritersElsewhere: 'écrit dans une autre session',
+    statusWritersStandby: 'en attente (non affiché)',
     statusTitle: 'État de la session',
     statusHealthTitle: 'État des composants',
     statusHealthPlaceholder: 'L’état en direct des composants apparaîtra ici.',
@@ -519,6 +523,7 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusWritersTitle: 'Quién escribe dónde',
     statusWritersEmpty: 'Nada ha pedido escribir en los últimos 15 minutos.',
     statusWritersElsewhere: 'escribiendo en otra sesión',
+    statusWritersStandby: 'en espera (no se muestra)',
     statusTitle: 'Estado de la sesión',
     statusHealthTitle: 'Estado de los componentes',
     statusHealthPlaceholder: 'El estado en vivo de los componentes aparecerá aquí.',
@@ -652,6 +657,7 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusWritersTitle: 'Kiyès k ap ekri ki kote',
     statusWritersEmpty: 'Anyen pa mande pou ekri nan 15 dènye minit yo.',
     statusWritersElsewhere: 'l ap ekri nan yon lòt sesyon',
+    statusWritersStandby: 'an atant (pa parèt)',
     statusTitle: 'Estati sesyon an',
     statusHealthTitle: 'Estati konpozan yo',
     statusHealthPlaceholder: 'Estati konpozan yo an dirèk ap parèt isit la.',
