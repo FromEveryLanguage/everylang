@@ -83,6 +83,7 @@ function PagePart({ componentStr, onReplace }: { componentStr: string; onReplace
 
   const languageSelector = (prefix: string, language: string) => (
     <select
+      aria-label={s.languagePicker}
       className="ml-2 px-1 py-0.5 rounded text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700"
       value={language}
       onChange={(e) => onLanguageChange(prefix)(e.target.value)}
@@ -106,6 +107,7 @@ function PagePart({ componentStr, onReplace }: { componentStr: string; onReplace
 
   const listenLanguageSelector = (language: string) => (
     <select
+      aria-label={s.languagePicker}
       className="ml-2 px-1 py-0.5 rounded text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700"
       value={language}
       onChange={(e) => onLanguageChange('listen')(e.target.value)}

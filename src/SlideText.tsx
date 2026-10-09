@@ -12,6 +12,8 @@ export interface SlideTextProps {
   header?: ReactNode;
   /** Rendered in place of `lines` when there is nothing to show (e.g. "not translated"). */
   placeholder?: ReactNode;
+  /** BCP 47 code of `lines`, so a screen reader reads them in the right voice. */
+  lang?: string;
 }
 
 /**
@@ -21,7 +23,7 @@ export interface SlideTextProps {
  * Both the original-language slide viewer and the translation viewer render
  * through here so the shell and the fit behavior live in one place.
  */
-export function SlideText({ lines, header, placeholder }: SlideTextProps) {
+export function SlideText({ lines, header, placeholder, lang }: SlideTextProps) {
   // Re-fit whenever the content changes.
   const contentKey = placeholder != null ? ' placeholder' : (lines ?? []).join('\n');
   const { containerRef, textRef, fontSize } = useFitText<HTMLDivElement, HTMLDivElement>([
@@ -40,7 +42,7 @@ export function SlideText({ lines, header, placeholder }: SlideTextProps) {
           {placeholder != null ? (
             <div className="text-center">{placeholder}</div>
           ) : (
-            <div className="text-center leading-tight space-y-1">
+            <div lang={lang} className="text-center leading-tight space-y-1">
               {(lines ?? []).map((line, i) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: lines have no stable id
                 <div key={i}>{line || BLANK_LINE}</div>

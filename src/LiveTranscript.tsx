@@ -24,8 +24,8 @@ import { useStickToBottom } from "./reactUtils";
 // One finalized transcript segment. Mounting fresh (only appended segments do)
 // plays a one-shot highlight animation, so new text is gently emphasized without
 // any diffing — the Yjs array is append-only.
-function TranscriptSegmentView({ text, isNew }: { text: string; isNew: boolean }) {
-  return <p className={`my-2 ${isNew ? "transcript-new" : ""}`}>{text}</p>;
+function TranscriptSegmentView({ text, isNew, lang }: { text: string; isNew: boolean; lang: string }) {
+  return <p lang={lang} className={`my-2 ${isNew ? "transcript-new" : ""}`}>{text}</p>;
 }
 
 // The silence before a segment, as a rule with the duration on it. Rendered between
@@ -96,7 +96,7 @@ export function LiveTranscript({ langCode }: { langCode: string }) {
               return (
                 <Fragment key={`${i}-${seg.text.slice(0, 16)}`}>
                   {pauseBefore !== undefined && <PauseDivider gapMs={pauseBefore} />}
-                  <TranscriptSegmentView text={seg.text} isNew={i >= baselineCount} />
+                  <TranscriptSegmentView text={seg.text} isNew={i >= baselineCount} lang={langCode} />
                 </Fragment>
               );
             })}
