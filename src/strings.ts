@@ -1,6 +1,15 @@
 export type SupportedLocale = 'en' | 'fr' | 'ht' | 'es';
 export const SUPPORTED_LOCALES: SupportedLocale[] = ['en', 'fr', 'ht', 'es'];
 
+/**
+ * The language the notes and the Proclaim slides are written in, as BCP 47. Not
+ * configurable: the slide prompts in nlp.ts assume English source text too. Marked on
+ * the page because <html lang> follows the UI locale, so an unmarked original would be
+ * read in a French viewer's French voice. (Live audio is different: its source language
+ * is per-session, see liveAudioConfig.ts.)
+ */
+export const SOURCE_TEXT_LANG = 'en';
+
 /** Maps internal language identifiers (from configAtoms.languages) to BCP 47 codes */
 export const LANGUAGE_BCP47: Record<string, string> = {
   'French': 'fr',
@@ -72,6 +81,8 @@ export interface AppStrings {
   listenOriginal: string;
   favorites: string;
   allLanguages: string;
+  /** Accessible name for the language pickers in pane headers (no visible label). */
+  languagePicker: string;
   micLevel: string;
 
   // Navigation
@@ -210,6 +221,7 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     listenOriginal: 'Original',
     favorites: 'Favorites',
     allLanguages: 'All languages',
+    languagePicker: 'Language',
     micLevel: 'Mic level',
     noSlides: 'No slides available',
     waitingForProclaim: 'Waiting for Proclaim data...',
@@ -340,6 +352,7 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     listenOriginal: 'Original',
     favorites: 'Favoris',
     allLanguages: 'Toutes les langues',
+    languagePicker: 'Langue',
     micLevel: 'Niveau du micro',
     noSlides: 'Aucune diapositive disponible',
     waitingForProclaim: 'En attente des donn\u00e9es Proclaim\u2026',
@@ -470,6 +483,7 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     listenOriginal: 'Original',
     favorites: 'Favoritos',
     allLanguages: 'Todos los idiomas',
+    languagePicker: 'Idioma',
     micLevel: 'Nivel del micrófono',
     noSlides: 'No hay diapositivas disponibles',
     waitingForProclaim: 'Esperando datos de Proclaim\u2026',
@@ -600,6 +614,7 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     listenOriginal: 'Orijinal',
     favorites: 'Favori',
     allLanguages: 'Tout lang yo',
+    languagePicker: 'Lang',
     micLevel: 'Nivo mikwo',
     noSlides: 'Pa gen diapozitiv disponib',
     waitingForProclaim: 'Ap tann done Proclaim\u2026',

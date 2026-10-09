@@ -13,7 +13,7 @@
 // for any viewer — a listener (whether or not they've started audio) or the
 // broadcaster — because reading it needs only the Yjs connection, not the audio
 // room.
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useRef } from "react";
 import { useAtomValue } from "jotai";
 import { fontSizeAtom } from "./configAtoms";
 import { useStrings, resolveLocale } from "./useLocale";
@@ -21,11 +21,12 @@ import { useTranscriptSegments } from "./useTranscriptSegments";
 import { formatPauseGap, isLongPause, type TranscriptSegment } from "./transcriptKeys";
 import { useStickToBottom } from "./reactUtils";
 
-// One finalized transcript segment. Mounting fresh (only appended segments do)
-// plays a one-shot highlight animation, so new text is gently emphasized without
-// any diffing — the Yjs array is append-only.
-function TranscriptSegmentView({ text, isNew }: { text: string; isNew: boolean }) {
-  return <p className={`my-2 ${isNew ? "transcript-new" : ""}`}>{text}</p>;
+// One transcript segment. Deliberately not animated on arrival: an earlier fade-in
+// replayed on every delta while a segment was starting (its key included the opening
+// text), so each line thrashed in; and the view sticks to the bottom, where new text
+// already shows up without help.
+function TranscriptSegmentView({ text, lang }: { text: string; lang: string }) {
+  return <p lang={lang} className="my-2">{text}</p>;
 }
 
 // The silence before a segment, as a rule with the duration on it. Rendered between
@@ -59,20 +60,6 @@ export function LiveTranscript({ langCode }: { langCode: string }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentEndRef = useRef<HTMLDivElement | null>(null);
 
-  // Segments already there when the viewer joined aren't animated; only
-  // later-appended ones are. Latched on the first render that *has* segments
-  // rather than on mount: a viewer opening an existing session mounts before the
-  // Yjs doc syncs, and a mount-time baseline of zero would play the new-text
-  // highlight across the whole synced-in history at once.
-  // Adjusted during render rather than in an effect: React re-runs the component
-  // immediately and throws the first pass away, so the history never reaches the
-  // DOM wearing the highlight class, not even for a frame.
-  const [baseline, setBaseline] = useState<number | null>(null);
-  if (baseline === null && segments.length > 0) {
-    setBaseline(segments.length);
-  }
-  const baselineCount = baseline ?? 0;
-
   // Key on the total text length, not segments.length: deltas stream into the
   // *current* segment without adding one, so keying on the count would only re-stick
   // at utterance boundaries and let mid-sentence text scroll off-screen.
@@ -94,9 +81,10 @@ export function LiveTranscript({ langCode }: { langCode: string }) {
               // collapse against each other, and boxing each one would double the gaps.
               const pauseBefore = isLongPause(seg) ? seg.gapMs : undefined;
               return (
-                <Fragment key={`${i}-${seg.text.slice(0, 16)}`}>
+                // biome-ignore lint/suspicious/noArrayIndexKey: the array is append-only, so an index names one segment for good
+                <Fragment key={i}>
                   {pauseBefore !== undefined && <PauseDivider gapMs={pauseBefore} />}
-                  <TranscriptSegmentView text={seg.text} isNew={i >= baselineCount} />
+                  <TranscriptSegmentView text={seg.text} lang={langCode} />
                 </Fragment>
               );
             })}

@@ -1,5 +1,5 @@
 import { useMap } from '@y-sweet/react';
-import { useStrings } from './useLocale';
+import { useStrings, LANGUAGE_BCP47 } from './useLocale';
 import { SlideText } from './SlideText';
 import {
   isBlankSlide,
@@ -82,7 +82,15 @@ export function SlideTranslationViewer({
     );
   }
 
-  return <SlideText lines={slideTextLines(resolved.entry.text)} header={header} />;
+  // The displayed language, not the requested one: a fallback (reviewed French shown to a
+  // Haitian Creole viewer) has to be read as French.
+  return (
+    <SlideText
+      lines={slideTextLines(resolved.entry.text)}
+      header={header}
+      lang={LANGUAGE_BCP47[resolved.displayLanguage]}
+    />
+  );
 }
 
 /** Yjs connector: reads the source slides + per-day slideTranslations and resolves. */
