@@ -34,6 +34,7 @@ import { SimulateScenarioKind } from '@livekit/rtc-node';
 import TranslationSessionManager, { SPEAKS_ATTRIBUTE } from './live-audio/translation-session-manager.ts';
 import { parseSilenceThresholdDbfs } from './live-audio/translation-bridge.ts';
 import { normalizeSourceLanguage } from './src/liveAudioConfig.ts';
+import { DEFAULT_SITE_LANGUAGES, parseSiteLanguages } from './src/siteLanguages.ts';
 import { connectServerDoc } from './serverDoc.ts';
 import { WriteAuth, auditDistinctId, formatAudit, resolveWriteAuthConfig } from './writeAuth.ts';
 import {
@@ -346,11 +347,19 @@ app.use('/audio-cache', express.static(AUDIO_CACHE_DIR));
 setupExpressRequestContext(phClient, app);
 
 
-// Public config for services that need to report to PostHog
+// Public config: PostHog for services that report to the same project (the Proclaim
+// install script reads only these two), and the landing page's per-deployment settings
+// (issue #133). SITE_LANGUAGES is validated here at boot, so a typo'd code stops the
+// server rather than quietly disappearing from the page.
+const SITE_NAME = process.env.SITE_NAME?.trim() ?? '';
+const SITE_LANGUAGES = parseSiteLanguages(process.env.SITE_LANGUAGES, DEFAULT_SITE_LANGUAGES);
 app.get('/api/config', (_req, res) => {
   res.json({
     posthogKey: process.env.VITE_PUBLIC_POSTHOG_KEY ?? '',
     posthogHost: process.env.VITE_PUBLIC_POSTHOG_HOST ?? '',
+    siteName: SITE_NAME,
+    siteLanguages: SITE_LANGUAGES,
+    sourceLanguage: DEFAULT_SOURCE_LANGUAGE_ENV,
   });
 });
 
@@ -766,8 +775,6 @@ async function draftItem({
     source,
   });
   const lookup = slideLibrary.toLookup();
-  // Bible lookups the model made while drafting — reported to PostHog and the review UI.
-  const bibleLookups: BibleToolCall[] = [];
   // The raw agent history, captured so we can persist it for review + follow-ups.
   let conversationMessages: Content[] = [];
   // Token usage across the draft's model calls (surfaced so cache hits/cost are visible).
@@ -786,10 +793,7 @@ async function draftItem({
         itemTitle: itemTitle || undefined,
         model: STRONG_MODEL,
         observability,
-        onToolCall: (call) => {
-          bibleLookups.push(call);
-          recordBibleLookup(call, conversationId, docId);
-        },
+        onToolCall: (call) => recordBibleLookup(call, conversationId, docId),
         onConversation: (messages) => {
           conversationMessages = messages;
         },
@@ -828,7 +832,7 @@ async function draftItem({
     usage,
   });
 
-  return { translations, bibleLookups, conversationId };
+  return { translations, conversationId };
 }
 
 // The review screen's "draft" for one item. Body: { slides, languages, docId, reference?,
@@ -890,7 +894,6 @@ app.post('/api/slideConversation/message', requireWriteKey('/api/slideConversati
   writeConversation(conversationsMap, conversation);
 
   const bibleLanguages = conversation.languages.filter((language) => BIBLE_TRANSLATIONS[language]);
-  const bibleLookups: BibleToolCall[] = [];
   // Same trace id as the initial draft so this follow-up's generations group with it.
   const observability = slideObservability(itemId, docId, { source: 'followUp' });
   try {
@@ -902,7 +905,6 @@ app.post('/api/slideConversation/message', requireWriteKey('/api/slideConversati
       currentTranslations,
       observability,
       onToolCall: (call) => {
-        bibleLookups.push(call);
         recordBibleLookup(call, itemId, docId);
         // Stream the agent's progress (new tool-call/response messages) to watchers.
         writeConversation(conversationsMap, conversation);
@@ -920,7 +922,7 @@ app.post('/api/slideConversation/message', requireWriteKey('/api/slideConversati
         updatedTranslations.push({ language, sourceText: block.sourceText, text: block.translatedText });
       }
     }
-    return res.json({ ok: true, conversation, updatedTranslations, bibleLookups });
+    return res.json({ ok: true, conversation, updatedTranslations });
   } catch (err) {
     setStatusIn(conversationsMap, itemId, 'error');
     console.error('slideConversation/message failed:', err);

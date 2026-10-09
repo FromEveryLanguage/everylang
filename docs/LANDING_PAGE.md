@@ -1,6 +1,7 @@
 # Landing page design brief
 
-**Status: proposal, not yet built.** Written for review. Nothing in here is implemented.
+**Status: built (issue #133), with the departures recorded in [§9](#9-what-was-decided).**
+§1 describes the page as it was before; the sketches in §5 are what it now is.
 
 The audience for the landing page is someone who was handed a link by the welcome team
 thirty seconds ago and does not know what this app is. Everything below follows from
@@ -413,3 +414,29 @@ Implementing this would touch [SMOKE_TEST.md](SMOKE_TEST.md) **§4 (live audio
 translation)** — the entry path into the listen pane changes — and would want a new short
 section covering the landing page itself: each configured language card reaches a working
 destination, and no card offers a pane its language cannot serve.
+
+---
+
+## 9. What was decided
+
+Answers to §7 and changes from the proposal above, as built:
+
+- **No `FEATURE_NOTE_TAKING` flag.** The "Sermon notes" row appears when the session's
+  `sourceBlocks` has any text, live. The flag was a stand-in for "is there anything to
+  read?"; asking that directly also avoids pointing people at an empty pane on a Sunday
+  nobody takes notes. Cost: the row appears mid-service, and a pinned doc with old notes
+  shows it.
+- **Haitian Creole** gets Kreyòl slides with **French** audio — NCF's Kreyòl speakers are
+  comfortable in French — and the card says so in Kreyòl. The substitution lives in one
+  declared table (`AUDIO_STAND_IN` in [src/siteLanguages.ts](../src/siteLanguages.ts)), not
+  a fallback.
+- **A bad `SITE_LANGUAGES` code fails the boot** (Q4), covered by
+  [serverBoot.test.ts](../serverBoot.test.ts).
+- **Staff links** sit behind a collapsed "Team" footer, visible on every device (not gated
+  on a write key).
+- **Long-list subtitles** (Q3): none; the footnote says what the long list gets.
+- **Service date** (Q6): left off.
+- **Not done here:** the "More options" layout-help page, and folding `languages` /
+  `LISTEN_FAVORITES` into `SITE_LANGUAGES` (the selector presets are unchanged).
+- ICU has no Haitian Creole data (Node, and possibly some browsers, name it in English), so
+  its endonym is code-owned too.

@@ -18,14 +18,9 @@ export interface AppStrings {
   bilingual: string;
 
   // Home page
-  chooseLayout: string;
-  chooseLanguage: string;
 
   // Layout names
-  layoutSlideAndTranslation: string;
-  layoutBilingualView: string;
   layoutEverything: string;
-  layoutSlideAndListen: string;
 
   // Font size controls
   decreaseFontSize: string;
@@ -133,21 +128,19 @@ export interface AppStrings {
   statusUpdatePending: string;
 
   // Layout diagram component labels
-  componentSourceText: string;
-  componentTranslatedText: string;
-  componentBilingual: string;
-  componentCurrentSlide: string;
-  componentListen: string;
 
   // Slide translation review
   slideReviewTitle: string;
-  slidesInputLabel: string;
   loadOnAirItem: string;
-  suggestTranslations: string;
-  suggesting: string;
-  bibleLookupsLabel: string;
-  bibleLookupFound: string;
-  bibleLookupMissing: string;
+  reTranslate: string;
+  reTranslating: string;
+  notTranslatedYet: string;
+  // "Reference" covers any canonical lookup the agent makes — Scripture, creeds, confessions.
+  referenceCheckHeader: string;
+  referenceCheckLegend: string;
+  referenceCheckCanonical: string;
+  referenceCheckAgent: string;
+  referenceCheckSimilarityTitle: string;
   save: string;
   saveAll: string;
   saving: string;
@@ -165,6 +158,23 @@ export interface AppStrings {
   selectItemLabel: string;
   sourceChangedWarning: string;
   agentThinking: string;
+  // Landing page (issue #133). Card subtitles render in the *card's* language, not the
+  // page's, so a Spanish speaker on an English phone reads "Diapositivas…" under Español.
+  landingTagline: string;
+  landingCardSource: string;
+  landingCardSlidesAndAudio: string;
+  /** `{lang}` is the stand-in audio language, named in this locale. */
+  landingCardSlidesStandInAudio: string;
+  landingCardSlidesOnly: string;
+  landingCardAudioOnly: string;
+  landingAnotherLanguage: string;
+  landingBack: string;
+  landingSearch: string;
+  /** `{langs}` is the slide-translation languages, named in this locale. */
+  landingAudioOnlyFootnote: string;
+  landingHeadphones: string;
+  landingNotesTitle: string;
+  landingTeam: string;
 }
 
 export const strings: Record<SupportedLocale, AppStrings> = {
@@ -173,12 +183,6 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     disconnected: 'Disconnected',
     translation: 'Translation',
     bilingual: 'Bilingual',
-    chooseLayout: 'Choose Layout',
-    chooseLanguage: 'Language',
-    layoutSlideAndTranslation: 'Slide and Translation',
-    layoutBilingualView: 'Bilingual View',
-    layoutSlideAndListen: 'Slide and Listen',
-      componentListen: 'Listen',
     layoutEverything: 'Everything',
     decreaseFontSize: 'Decrease font size',
     increaseFontSize: 'Increase font size',
@@ -266,47 +270,53 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptSource: 'source',
     statusTranscriptNoUpdates: 'No updates since page load',
     statusUpdatePending: 'Update pending — restart the service',
-    componentSourceText: 'Source Text',
-    componentTranslatedText: 'Translated Text',
-    componentBilingual: 'Bilingual View',
-    componentCurrentSlide: 'Current Slide',
     slideReviewTitle: 'Slide Translation Review',
-    slidesInputLabel: 'Item slides (separate slides with a blank line or --)',
     loadOnAirItem: 'Load on-air item',
-    suggestTranslations: 'Suggest',
-    suggesting: 'Suggesting…',
-    bibleLookupsLabel: 'Bible lookups',
-    bibleLookupFound: 'Found in',
-    bibleLookupMissing: 'No canonical text found',
+    reTranslate: 'Re-translate',
+    reTranslating: 'Re-translating…',
+    notTranslatedYet: 'Not translated yet — use Re-translate to draft this item.',
+    referenceCheckHeader: 'Reference check',
+    referenceCheckLegend:
+      'Struck-through red is the published wording the translation dropped or changed; green is the translation’s own wording.',
+    referenceCheckCanonical: 'Published reference text',
+    referenceCheckAgent: 'Translation’s wording',
+    referenceCheckSimilarityTitle: 'How much of the published wording the translation kept',
     save: 'Save',
     saveAll: 'Save all reviewed',
     saving: 'Saving…',
     statusReviewed: 'Reviewed',
     statusUnsaved: 'Unsaved',
     reviewSourceHeader: 'Source',
-    noSlidesToReview: 'Enter or load an item to review its slides.',
+    noSlidesToReview: 'Select a service item, or load the on-air item, to review its slides.',
     editorOnlyReview: 'Open this page with #editor to edit and save translations.',
     reviewSlidesLink: 'Review Slide Translations',
     unreviewedBadge: 'unreviewed',
     conversationHeader: 'Agent conversation',
-    noConversation: 'No conversation yet — Suggest to start one.',
+    noConversation: 'No conversation yet — Re-translate to start one.',
     followUpPlaceholder: 'Ask a question or give feedback…',
     sendMessage: 'Send',
     selectItemLabel: 'Service item',
     sourceChangedWarning: 'Source slides changed since this was translated.',
     agentThinking: 'Agent is working…',
+    landingTagline: 'Live translation for today\'s service. Pick your language.',
+    landingCardSource: 'Read along, or listen',
+    landingCardSlidesAndAudio: 'Slides and live audio',
+    landingCardSlidesStandInAudio: 'Slides, with audio in {lang}',
+    landingCardSlidesOnly: 'Slides only',
+    landingCardAudioOnly: 'Live audio and transcript',
+    landingAnotherLanguage: 'Another language',
+    landingBack: 'Back',
+    landingSearch: 'Search',
+    landingAudioOnlyFootnote: 'Live audio and transcript only — slides are translated into {langs}.',
+    landingHeadphones: 'Audio is optional: the transcript appears on its own. To listen, use headphones.',
+    landingNotesTitle: 'Sermon notes',
+    landingTeam: 'Team',
   },
   fr: {
     connecting: 'Connexion\u2026',
     disconnected: 'D\u00e9connect\u00e9',
     translation: 'Traduction',
     bilingual: 'Bilingue',
-    chooseLayout: 'Choisir la mise en page',
-    chooseLanguage: 'Langue',
-    layoutSlideAndTranslation: 'Diapositive et traduction',
-    layoutBilingualView: 'Vue bilingue',
-    layoutSlideAndListen: 'Diapositive et écoute',
-      componentListen: 'Écouter',
     layoutEverything: 'Tout',
     decreaseFontSize: 'Diminuer la taille du texte',
     increaseFontSize: 'Augmenter la taille du texte',
@@ -394,47 +404,53 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptSource: 'source',
     statusTranscriptNoUpdates: 'Aucune mise à jour depuis le chargement de la page',
     statusUpdatePending: 'Mise à jour en attente — redémarrez le service',
-    componentSourceText: 'Texte source',
-    componentTranslatedText: 'Texte traduit',
-    componentBilingual: 'Vue bilingue',
-    componentCurrentSlide: 'Diapositive actuelle',
     slideReviewTitle: 'Révision des traductions de diapositives',
-    slidesInputLabel: 'Diapositives de l’élément (séparez par une ligne vide ou --)',
     loadOnAirItem: 'Charger l’élément à l’antenne',
-    suggestTranslations: 'Suggérer',
-    suggesting: 'Suggestion…',
-    bibleLookupsLabel: 'Recherches bibliques',
-    bibleLookupFound: 'Trouvé en',
-    bibleLookupMissing: 'Aucun texte canonique trouvé',
+    reTranslate: 'Retraduire',
+    reTranslating: 'Retraduction…',
+    notTranslatedYet: 'Pas encore traduit — utilisez Retraduire pour en faire un brouillon.',
+    referenceCheckHeader: 'Vérification de la référence',
+    referenceCheckLegend:
+      'En rouge barré, le texte publié que la traduction a omis ou modifié ; en vert, les mots propres à la traduction.',
+    referenceCheckCanonical: 'Texte de référence publié',
+    referenceCheckAgent: 'Formulation de la traduction',
+    referenceCheckSimilarityTitle: 'Part du texte publié conservée par la traduction',
     save: 'Enregistrer',
     saveAll: 'Tout enregistrer',
     saving: 'Enregistrement…',
     statusReviewed: 'Révisé',
     statusUnsaved: 'Non enregistré',
     reviewSourceHeader: 'Source',
-    noSlidesToReview: 'Saisissez ou chargez un élément pour réviser ses diapositives.',
+    noSlidesToReview: 'Choisissez un élément du service, ou chargez l’élément à l’antenne, pour réviser ses diapositives.',
     editorOnlyReview: 'Ouvrez cette page avec #editor pour modifier et enregistrer les traductions.',
     reviewSlidesLink: 'Réviser les traductions de diapositives',
     unreviewedBadge: 'non révisé',
     conversationHeader: 'Conversation avec l’agent',
-    noConversation: 'Aucune conversation pour l’instant — cliquez sur Suggérer pour en démarrer une.',
+    noConversation: 'Aucune conversation pour l’instant — cliquez sur Retraduire pour en démarrer une.',
     followUpPlaceholder: 'Posez une question ou donnez un retour…',
     sendMessage: 'Envoyer',
     selectItemLabel: 'Élément du service',
     sourceChangedWarning: 'Les diapositives source ont changé depuis cette traduction.',
     agentThinking: 'L’agent travaille…',
+    landingTagline: 'Traduction en direct du culte d\'aujourd\'hui. Choisissez votre langue.',
+    landingCardSource: 'Lire, ou écouter',
+    landingCardSlidesAndAudio: 'Diapositives et audio en direct',
+    landingCardSlidesStandInAudio: 'Diapositives, audio en {lang}',
+    landingCardSlidesOnly: 'Diapositives seulement',
+    landingCardAudioOnly: 'Audio en direct et transcription',
+    landingAnotherLanguage: 'Une autre langue',
+    landingBack: 'Retour',
+    landingSearch: 'Rechercher',
+    landingAudioOnlyFootnote: 'Audio et transcription seulement — les diapositives sont traduites en {langs}.',
+    landingHeadphones: 'L\'audio est facultatif : la transcription s\'affiche seule. Pour écouter, utilisez des écouteurs.',
+    landingNotesTitle: 'Notes du sermon',
+    landingTeam: 'Équipe',
   },
   es: {
     connecting: 'Conectando\u2026',
     disconnected: 'Desconectado',
     translation: 'Traducci\u00f3n',
     bilingual: 'Biling\u00fce',
-    chooseLayout: 'Elegir dise\u00f1o',
-    chooseLanguage: 'Idioma',
-    layoutSlideAndTranslation: 'Diapositiva y traducci\u00f3n',
-    layoutBilingualView: 'Vista biling\u00fce',
-    layoutSlideAndListen: 'Diapositiva y escucha',
-      componentListen: 'Escuchar',
     layoutEverything: 'Todo',
     decreaseFontSize: 'Disminuir tama\u00f1o de fuente',
     increaseFontSize: 'Aumentar tama\u00f1o de fuente',
@@ -522,47 +538,53 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptSource: 'fuente',
     statusTranscriptNoUpdates: 'Sin actualizaciones desde que se cargó la página',
     statusUpdatePending: 'Actualización pendiente — reinicie el servicio',
-    componentSourceText: 'Texto fuente',
-    componentTranslatedText: 'Texto traducido',
-    componentBilingual: 'Vista biling\u00fce',
-    componentCurrentSlide: 'Diapositiva actual',
     slideReviewTitle: 'Revisi\u00f3n de traducciones de diapositivas',
-    slidesInputLabel: 'Diapositivas del elemento (separe con una l\u00ednea en blanco o --)',
     loadOnAirItem: 'Cargar elemento al aire',
-    suggestTranslations: 'Sugerir',
-    suggesting: 'Sugiriendo\u2026',
-    bibleLookupsLabel: 'Consultas b\u00edblicas',
-    bibleLookupFound: 'Encontrado en',
-    bibleLookupMissing: 'No se encontr\u00f3 texto can\u00f3nico',
+    reTranslate: 'Retraducir',
+    reTranslating: 'Retraduciendo\u2026',
+    notTranslatedYet: 'A\u00fan sin traducir: use Retraducir para generar un borrador.',
+    referenceCheckHeader: 'Verificaci\u00f3n de la referencia',
+    referenceCheckLegend:
+      'En rojo tachado, el texto publicado que la traducci\u00f3n omiti\u00f3 o cambi\u00f3; en verde, las palabras propias de la traducci\u00f3n.',
+    referenceCheckCanonical: 'Texto de referencia publicado',
+    referenceCheckAgent: 'Redacci\u00f3n de la traducci\u00f3n',
+    referenceCheckSimilarityTitle: 'Cu\u00e1nto del texto publicado conserv\u00f3 la traducci\u00f3n',
     save: 'Guardar',
     saveAll: 'Guardar todo',
     saving: 'Guardando\u2026',
     statusReviewed: 'Revisado',
     statusUnsaved: 'Sin guardar',
     reviewSourceHeader: 'Fuente',
-    noSlidesToReview: 'Ingrese o cargue un elemento para revisar sus diapositivas.',
+    noSlidesToReview: 'Seleccione un elemento del servicio, o cargue el elemento al aire, para revisar sus diapositivas.',
     editorOnlyReview: 'Abra esta p\u00e1gina con #editor para editar y guardar traducciones.',
     reviewSlidesLink: 'Revisar traducciones de diapositivas',
     unreviewedBadge: 'sin revisar',
     conversationHeader: 'Conversación con el agente',
-    noConversation: 'Aún no hay conversación — pulse Sugerir para iniciar una.',
+    noConversation: 'Aún no hay conversación — pulse Retraducir para iniciar una.',
     followUpPlaceholder: 'Haga una pregunta o dé su opinión…',
     sendMessage: 'Enviar',
     selectItemLabel: 'Elemento del servicio',
     sourceChangedWarning: 'Las diapositivas de origen cambiaron desde esta traducción.',
     agentThinking: 'El agente está trabajando…',
+    landingTagline: 'Traducción en vivo del culto de hoy. Elija su idioma.',
+    landingCardSource: 'Leer, o escuchar',
+    landingCardSlidesAndAudio: 'Diapositivas y audio en vivo',
+    landingCardSlidesStandInAudio: 'Diapositivas, audio en {lang}',
+    landingCardSlidesOnly: 'Solo diapositivas',
+    landingCardAudioOnly: 'Audio en vivo y transcripción',
+    landingAnotherLanguage: 'Otro idioma',
+    landingBack: 'Volver',
+    landingSearch: 'Buscar',
+    landingAudioOnlyFootnote: 'Solo audio y transcripción — las diapositivas se traducen a: {langs}.',
+    landingHeadphones: 'El audio es opcional: la transcripción aparece sola. Para escuchar, use audífonos.',
+    landingNotesTitle: 'Notas del sermón',
+    landingTeam: 'Equipo',
   },
   ht: {
     connecting: 'Koneksyon\u2026',
     disconnected: 'Dekonekte',
     translation: 'Tradiksyon',
     bilingual: 'Bileng',
-    chooseLayout: 'Chwazi Dispozisyon',
-    chooseLanguage: 'Lang',
-    layoutSlideAndTranslation: 'Diapozitiv ak Tradiksyon',
-    layoutBilingualView: 'Vi Bileng',
-    layoutSlideAndListen: 'Diapozitiv ak \u00c9coute',
-      componentListen: 'Koute',
     layoutEverything: 'Tout bagay',
     decreaseFontSize: 'Diminye gw\u00f2s\u00e8 l\u00e8t',
     increaseFontSize: 'Ogmante gw\u00f2s\u00e8 l\u00e8t',
@@ -650,34 +672,46 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptSource: 'sous',
     statusTranscriptNoUpdates: 'Pa gen mizajou depi paj la chaje',
     statusUpdatePending: 'Gen yon mizajou k ap tann — rekòmanse sèvis la',
-    componentSourceText: 'Teks sous',
-    componentTranslatedText: 'Teks tradui',
-    componentBilingual: 'Vi Bileng',
-    componentCurrentSlide: 'Diapozitiv aktyèl',
     slideReviewTitle: 'Revizyon Tradiksyon Diapozitiv',
-    slidesInputLabel: 'Diapozitiv eleman an (separe ak yon liy vid oswa --)',
     loadOnAirItem: 'Chaje eleman k ap pase a',
-    suggestTranslations: 'Sijere',
-    suggesting: 'Ap sijere…',
-    bibleLookupsLabel: 'Rechèch biblik',
-    bibleLookupFound: 'Jwenn nan',
-    bibleLookupMissing: 'Pa jwenn tèks kanonik',
+    reTranslate: 'Retradui',
+    reTranslating: 'Ap retradui…',
+    notTranslatedYet: 'Poko tradui — sèvi ak Retradui pou fè yon bouyon.',
+    referenceCheckHeader: 'Verifikasyon referans',
+    referenceCheckLegend:
+      'Wouj ak liy ladan se tèks pibliye tradiksyon an kite oswa chanje; vèt se pwòp mo tradiksyon an.',
+    referenceCheckCanonical: 'Tèks referans pibliye',
+    referenceCheckAgent: 'Fason tradiksyon an di li',
+    referenceCheckSimilarityTitle: 'Konbyen nan tèks pibliye a tradiksyon an kenbe',
     save: 'Anrejistre',
     saveAll: 'Anrejistre tout',
     saving: 'Ap anrejistre…',
     statusReviewed: 'Revize',
     statusUnsaved: 'Pa anrejistre',
     reviewSourceHeader: 'Sous',
-    noSlidesToReview: 'Antre oswa chaje yon eleman pou revize diapozitiv li yo.',
+    noSlidesToReview: 'Chwazi yon eleman nan sèvis la, oswa chaje eleman k ap pase a, pou revize diapozitiv li yo.',
     editorOnlyReview: 'Ouvri paj sa a ak #editor pou modifye ak anrejistre tradiksyon.',
     reviewSlidesLink: 'Revize Tradiksyon Diapozitiv',
     unreviewedBadge: 'pa revize',
     conversationHeader: 'Konvèsasyon ak ajan an',
-    noConversation: 'Poko gen konvèsasyon — klike Sijere pou kòmanse youn.',
+    noConversation: 'Poko gen konvèsasyon — klike Retradui pou kòmanse youn.',
     followUpPlaceholder: 'Poze yon kesyon oswa bay yon kòmantè…',
     sendMessage: 'Voye',
     selectItemLabel: 'Eleman sèvis la',
     sourceChangedWarning: 'Diapozitiv sous yo chanje depi tradiksyon sa a.',
     agentThinking: 'Ajan an ap travay…',
+    landingTagline: 'Tradiksyon an dirèk pou sèvis jodi a. Chwazi lang ou.',
+    landingCardSource: 'Li, oswa koute',
+    landingCardSlidesAndAudio: 'Dyapozitiv ak odyo an dirèk',
+    landingCardSlidesStandInAudio: 'Dyapozitiv, odyo an {lang}',
+    landingCardSlidesOnly: 'Dyapozitiv sèlman',
+    landingCardAudioOnly: 'Odyo an dirèk ak transkripsyon',
+    landingAnotherLanguage: 'Yon lòt lang',
+    landingBack: 'Retounen',
+    landingSearch: 'Chèche',
+    landingAudioOnlyFootnote: 'Odyo ak transkripsyon sèlman — dyapozitiv yo tradui an {langs}.',
+    landingHeadphones: 'Odyo a pa obligatwa: transkripsyon an parèt pou kont li. Pou koute, sèvi ak ekoutè.',
+    landingNotesTitle: 'Nòt prèch la',
+    landingTeam: 'Ekip',
   },
 };

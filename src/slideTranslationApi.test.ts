@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
-  parseSlidesInput,
   lookupLibrary,
   upsertLibraryEntry,
   translateItem,
@@ -12,31 +11,6 @@ import {
 vi.mock('./getDocId', () => ({
   getDocId: () => 'doc-test',
 }));
-
-describe('parseSlidesInput', () => {
-  it('splits on explicit -- delimiters', () => {
-    const text = 'Slide one\nline two\n--\nSlide two';
-    expect(parseSlidesInput(text)).toEqual(['Slide one\nline two', 'Slide two']);
-  });
-
-  it('uses blank lines when there are no -- delimiters', () => {
-    const text = 'Slide one\n\nSlide two\n\n\nSlide three';
-    expect(parseSlidesInput(text)).toEqual(['Slide one', 'Slide two', 'Slide three']);
-  });
-
-  it('keeps blank lines inside a slide when -- delimiters are present', () => {
-    const text = 'Verse line\n\nstill same slide\n--\nNext slide';
-    expect(parseSlidesInput(text)).toEqual(['Verse line\n\nstill same slide', 'Next slide']);
-  });
-
-  it('ignores leading/trailing whitespace and empty slides', () => {
-    expect(parseSlidesInput('\n\n--\n  \n--\nOnly slide\n')).toEqual(['Only slide']);
-  });
-
-  it('returns an empty array for blank input', () => {
-    expect(parseSlidesInput('   \n  \n')).toEqual([]);
-  });
-});
 
 describe('api clients', () => {
   afterEach(() => {
@@ -64,19 +38,11 @@ describe('api clients', () => {
     await expect(upsertLibraryEntry({ language: 'French', sourceText: 'Hello', text: 'Bonjour' })).resolves.toEqual(record);
   });
 
-  it('translateItem returns the per-language translation map and bible lookups', async () => {
+  it('translateItem returns the per-language translation map and conversation id', async () => {
     const translations = { French: [{ text: 'Bonjour', status: 'auto', provenance: 'llm' }] };
-    const bibleLookups = [
-      { reference: 'JHN 3:16', foundLanguages: ['French'], missingLanguages: [], ok: true },
-    ];
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ translations, bibleLookups }) }));
-    await expect(translateItem(['Hello'], ['French'])).resolves.toEqual({ translations, bibleLookups });
-  });
-
-  it('translateItem defaults bibleLookups to an empty array when omitted', async () => {
-    const translations = { French: [{ text: 'Bonjour', status: 'auto', provenance: 'llm' }] };
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ translations }) }));
-    await expect(translateItem(['Hello'], ['French'])).resolves.toEqual({ translations, bibleLookups: [] });
+    const conversationId = 'item-1';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ translations, conversationId }) }));
+    await expect(translateItem(['Hello'], ['French'])).resolves.toEqual({ translations, conversationId });
   });
 
   it('throws on a non-ok response', async () => {

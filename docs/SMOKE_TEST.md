@@ -19,6 +19,19 @@ an incident happens that this list would not have caught, add a line.
 - [ ] Open the app from an *already-installed* iOS home-screen icon; it loads, not a blank
       page (the service worker once turned one failed fetch into a permanent blank, #161).
 
+## 0. Landing page (#133)
+
+- [ ] `/` on a phone shows one card per `SITE_LANGUAGES` entry, each named in its own
+      language, and the deployment's `SITE_NAME`. No layout diagrams, no staff links outside
+      the "Team" footer.
+- [ ] Tap each card: every pane on the destination has content to show (or is legitimately
+      waiting for the speaker). None is a permanently empty notes panel. The Kreyòl card
+      says, in Kreyòl, that its audio is French, and lands on Kreyòl slides + French audio.
+- [ ] "Another language" → search "port" → Português lands on `listen-pt` alone.
+- [ ] With notes typed in the editor, a "Sermon notes" row appears on the landing page
+      (live, no reload); in a session with no notes it is absent.
+- [ ] A server started with a bogus `SITE_LANGUAGES` code refuses to boot, naming the code.
+
 ## 1. Collaboration & editor
 
 - [ ] Type in the block editor; text appears on the second device within ~1 s.
@@ -64,7 +77,8 @@ an incident happens that this list would not have caught, add a line.
 ## 4. Live audio translation
 
 - [ ] Start broadcasting (mic level meter moves).
-- [ ] On the viewer device, join Listen for one language **after** broadcast started:
+- [ ] On the viewer device, tap a language card on the landing page (that is the attendee's
+      way in), **after** broadcast started:
       transcript deltas appear, translated audio plays after tapping play.
 - [ ] **The #69 race / waiting room**: start the Listen client *first*, then start
       broadcasting. Before the broadcast the supervisor runs no bridges (the listener just

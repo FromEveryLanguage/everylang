@@ -65,6 +65,10 @@ reads them, which is where they stay correct.
   `SLIDE_TRANSLATION_LANGUAGES`) — the stronger model used for whole-item slide drafting, the
   general context injected into every slide-translation prompt, and the languages the
   Proclaim feed is translated into ahead of time. All defaulted in `server.ts`.
+- *Landing page* (`SITE_NAME`, `SITE_LANGUAGES`) — which language cards the front door
+  offers, in order; served to the client via `/api/config`. Destinations are derived from
+  capabilities in [src/siteLanguages.ts](src/siteLanguages.ts), and an unservable code stops
+  the boot. See [docs/LANDING_PAGE.md](docs/LANDING_PAGE.md).
 - *Storage paths* (`SLIDE_LIBRARY_PATH`) — the reviewed-translation library; defaults inside
   the audio-cache dir so it rides the existing Docker volume.
 - *Telemetry* (`VITE_PUBLIC_POSTHOG_KEY`, `VITE_PUBLIC_POSTHOG_HOST`) — genuinely optional.
@@ -525,7 +529,7 @@ Details in [docs/PROCLAIM_SERVICE_SETUP.md](docs/PROCLAIM_SERVICE_SETUP.md#autom
 
 #### PostHog Config Endpoint
 
-`GET /api/config` on the Express server returns `{ posthogKey, posthogHost }` — used by the install script and any other service that needs to report to the same PostHog project without separately managing the key.
+`GET /api/config` on the Express server returns `posthogKey`/`posthogHost` — used by the install script and any other service that needs to report to the same PostHog project without separately managing the key — plus the landing page's per-deployment settings, which `SessionGate` fetches alongside the current session ([src/siteConfig.ts](src/siteConfig.ts)).
 
 ### Layout System
 
@@ -534,8 +538,8 @@ The UI uses a **URL-based layout system** (`PagePart` in [App.tsx](src/App.tsx) 
 - Layouts are encoded in the URL path: `/sourceText|bilingual-French`
 - Format: **`|` separates columns, `,` stacks panes within a column.** On a wide screen the
   `|` groups sit side by side (`flex-row`) and each group's `,` members stack (`flex-col`);
-  narrow screens stack the columns too. `LayoutDiagram.tsx` states the same shape — "a 2D
-  array: columns of rows" — and is the thing to read if this is ever in doubt.
+  narrow screens stack the columns too. `parseLayoutString` in `App.tsx` is the definition;
+  [docs/LAYOUT_URLS.md](docs/LAYOUT_URLS.md) has worked examples.
 - Components (the authoritative list is the `PagePart` branch chain in `App.tsx`; this is a
   summary and can fall behind it):
   - `sourceText` — the block editor + translation controls
