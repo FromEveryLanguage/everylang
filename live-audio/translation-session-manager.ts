@@ -379,6 +379,24 @@ export class TranslationSessionManager {
   }
 
   /**
+   * Whether anyone is broadcasting into this room right now — the browser pane or the
+   * audio feeder, which both join under the organizer prefix. False when live audio
+   * isn't configured, since then nobody can be. Throws when LiveKit can't be read, so a
+   * caller about to do something destructive can tell "nobody" from "couldn't look".
+   *
+   * Asks for the room list first because `listParticipants` on a room that doesn't exist
+   * fails the same way as an unreachable LiveKit (the supervisor can treat those alike;
+   * a confirmation prompt can't).
+   */
+  async broadcasterPresent(sessionId: string): Promise<boolean> {
+    if (!this.directory) return false;
+    const rooms = await this.directory.listRooms();
+    if (!rooms.includes(sessionId)) return false;
+    const participants = await this.directory.listParticipants(sessionId);
+    return participants.some((p) => p.identity.startsWith(ORGANIZER_PREFIX));
+  }
+
+  /**
    * Ask the supervisor to reconcile a room soon (fire-and-forget). Used by the token
    * route so a broadcaster going live gets their bridges within seconds rather than
    * on the next tick. Purely a latency optimization: the interval loop converges to

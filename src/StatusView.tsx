@@ -3,6 +3,7 @@ import { useMap, useYDoc } from '@y-sweet/react';
 import { useStrings } from './useLocale';
 import { getDocId } from './getDocId';
 import { TranscriptHealth } from './TranscriptHealth';
+import { FreshTranscriptButton } from './FreshTranscriptButton';
 import { getWriteKey, maskWriteKey, setWriteKey } from './writeKey';
 import { clearSessionPin, fetchSessionWriters, pinSession, type WriterSighting } from './sessionApi';
 import type { CurrentSession } from './sessionCurrent';
@@ -288,6 +289,11 @@ export interface StatusViewProps {
    * observers). Kept as a slot so the pure component stays testable without Yjs.
    */
   liveTranscripts?: ReactNode;
+  /**
+   * The "start fresh transcript" control, injected by the container (it calls the
+   * server). Omitting it hides the control.
+   */
+  transcriptActions?: ReactNode;
   /** This device's stored write key, or null when it has none. */
   writeKey?: string | null;
   /**
@@ -306,6 +312,7 @@ export function StatusView({
   docId,
   statusEntries,
   liveTranscripts,
+  transcriptActions,
   writeKey = null,
   onWriteKeyChange,
   sessionControl,
@@ -384,6 +391,7 @@ export function StatusView({
           {liveTranscripts ?? (
             <p className={placeholderClass}>{s.statusTranscriptsEmpty}</p>
           )}
+          {transcriptActions}
         </section>
 
         {/* This device's write key — provisioning and rotation, off the viewer screens. */}
@@ -502,6 +510,7 @@ export function StatusViewContainer() {
       docId={getDocId()}
       statusEntries={statusEntries}
       liveTranscripts={<TranscriptHealth />}
+      transcriptActions={<FreshTranscriptButton docId={getDocId()} />}
       writeKey={writeKey}
       onWriteKeyChange={(key) => {
         setWriteKey(key);

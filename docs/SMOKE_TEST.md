@@ -115,6 +115,11 @@ an incident happens that this list would not have caught, add a line.
 
 - [ ] With **no listener yet**, the source transcript still flows — the primary translator
       runs whenever the broadcaster is present, whatever the cost path is set to.
+- [ ] **Fresh transcript after a demo**: with the broadcast stopped, press **Start fresh
+      transcript** (on `/status`, or on the broadcast pane before going live). After one
+      confirmation every transcript pane empties, on every device. Press it again *while
+      broadcasting*: a second warning names the live broadcaster, and declining it leaves the
+      transcript alone.
 
 Non-English speaker (only when the service isn't in English):
 
