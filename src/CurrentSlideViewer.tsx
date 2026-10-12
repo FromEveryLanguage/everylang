@@ -1,6 +1,7 @@
 import { useMap } from '@y-sweet/react';
 import { useStrings } from './useLocale';
 import { SlideText } from './SlideText';
+import { SOURCE_TEXT_LANG } from './strings';
 
 interface CurrentSlideViewerProps {
   title: string;
@@ -26,7 +27,7 @@ export function CurrentSlideViewer({ slides, currentIndex }: CurrentSlideViewerP
   // separate writes, so currentIndex can transiently point past the slides.
   const clampedIndex = Math.min(Math.max(currentIndex, 0), slides.length - 1);
 
-  return <SlideText lines={slides[clampedIndex].split('\n')} />;
+  return <SlideText lines={slides[clampedIndex].split('\n')} lang={SOURCE_TEXT_LANG} />;
 }
 
 /**
