@@ -617,23 +617,6 @@ app.get('/api/livekit/translate/status', (req, res) => {
   }
 });
 
-// Legacy endpoint, kept for clients cached from before the presence supervisor.
-// Leaving the LiveKit room is now the real "unsubscribe" signal; a beacon here just
-// nudges the supervisor to notice sooner.
-app.post('/api/livekit/translate/unsubscribe', (req, res) => {
-  try {
-    if (!getLiveKitConfig()) return res.status(503).json({ error: 'LiveKit not configured' });
-    const sessionId = req.body?.sessionId as string | undefined;
-    if (!sessionId) return res.status(400).json({ error: 'Missing sessionId' });
-    TranslationSessionManager.getInstance().poke(sessionId);
-    return res.json({ success: true });
-  } catch (error) {
-    phClient.captureException(error);
-    console.error('LiveKit unsubscribe error:', error);
-    return res.status(500).json({ error: 'Failed to unsubscribe' });
-  }
-});
-
 
 // Force a LiveKit reconnection scenario on a session's translator bridges.
 //
