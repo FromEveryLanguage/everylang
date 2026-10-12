@@ -116,7 +116,9 @@ const SLIDE_TRANSLATION_CONTEXT = process.env.SLIDE_TRANSLATION_CONTEXT ||
   'These slides are shown at a Presbyterian Church in America (PCA) worship service. The ' +
   'translations are provided alongside the service so non-English speakers can follow along — ' +
   'they are for understanding and reference, not for congregational singing or as an official ' +
-  'literal/liturgical rendering. Aim for clear, natural, reverent wording in each target language.';
+  'literal/liturgical rendering. When writing new translations, aim for clear and natural wording. ' +
+  'However, that does NOT apply to Scripture texts; they should be looked up using the tool and ' +
+  'the wording used without revision, even if it seems dated or awkward.';
 
 const ySweetConnectionString = getEnvOrCrash("YSWEET_CONNECTION_STRING");
 // The userinfo part of a ys:// string is Y-Sweet's server token, a full-access credential.

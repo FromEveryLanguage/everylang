@@ -739,7 +739,8 @@ Canonical Scripture is available through lookup_bible_passage for: ${bibleLangua
 Look up every reference you recognize — the passage named in the item title above, and any
 inline references — before recording the final translations, and base those slides on the
 published wording, adapting only where the slide itself does (responsive readings, pronoun
-changes, partial quotes).
+changes, partial quotes). DO NOT attempt to modernize, simplify, clarify, or otherwise
+rewrite canonical Scripture texts; the text is authoritative and must be quoted accurately.
 
 Be reticent in adaptations: prefer direct quotes of the published text, and only adapt
 when it is very clear that the slide itself has deliberately made an adaptation.
