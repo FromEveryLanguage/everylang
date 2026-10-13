@@ -153,12 +153,12 @@ function ToolActivity({
         <details className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           <summary className="cursor-pointer">{s.toolActivityDetails}</summary>
           {callArgs !== undefined && (
-            <pre className="mt-1 overflow-auto whitespace-pre-wrap break-words">
+            <pre className="mt-1 overflow-auto whitespace-pre-wrap wrap-break-word">
               {JSON.stringify(callArgs, null, 2)}
             </pre>
           )}
           {responseBody !== undefined && (
-            <pre className="mt-1 overflow-auto whitespace-pre-wrap break-words">
+            <pre className="mt-1 overflow-auto whitespace-pre-wrap wrap-break-word">
               {JSON.stringify(responseBody, null, 2)}
             </pre>
           )}
