@@ -100,6 +100,8 @@ The `Content` JSON structure varies by `ServiceItemKind`. All text content is st
 - **`UseCustomTransition`** — `"true"` if using custom transitions.
 - **`CustomTransitionKind`** — e.g., `"LyricScrolling"`.
 - **`CustomTransitionDuration`** — e.g., `"0"`.
+- **`ShowTitle`** - `"true"` if the title of a song is displayed
+- **`TitleSlide`** - `"Title"`, `"Final"`, `"FirstLyric"`, or `"Every"`. Title and Final will add a title slide to the deck.
 
 #### `Content`
 
