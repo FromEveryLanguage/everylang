@@ -302,8 +302,13 @@ def _slides_from_source_xml(item_kind: str, content: dict, source_xml: str) -> L
         sections = split_into_song_sections(source_text)
         order_str = content.get('CustomOrderSequence') or ''
         slides = get_slides_in_order(sections, order_str)
-        if title := content.get('SongDisplayTitle'):
-            slides.insert(0, title)
+
+        """If the title is displayed, add title slide. Otherwise don't"""
+        if (title := content.get('SongDisplayTitle')) and content.get('ShowTitle') == "true":
+            if content.get('TitleSlide') == 'Title':
+                slides.insert(0, title)
+            elif content.get('TitleSlide') == 'Final':
+                slides.append(title)
         return slides
 
     return split_into_slides(source_text)
