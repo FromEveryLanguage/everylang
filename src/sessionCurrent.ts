@@ -90,6 +90,12 @@ export interface WriterSighting {
   writer: string;
   /** ISO timestamp of the most recent sighting. */
   at: string;
+  /**
+   * Heard from but not applied: a Proclaim service that is off air, or on air but overtaken
+   * by one that went on air later. A flag on the sighting, not part of `writer`, so a machine
+   * changing standing stays one row.
+   */
+  standby?: boolean;
 }
 
 /** A doc id must look like one before it becomes the answer everyone reads. */

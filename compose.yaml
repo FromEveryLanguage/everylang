@@ -1,7 +1,9 @@
 services:
   y-sweet:
     image: node:24-slim
-    command: ["npx", "y-sweet@latest", "serve", "/data"]
+    command: ["npx", "y-sweet@0.9.1", "serve", "--prod", "/data"]
+    environment:
+      - Y_SWEET_AUTH=${Y_SWEET_AUTH:?set Y_SWEET_AUTH in .env (see template-.env)}
     ports:
       - "5007:8080"
     volumes:
@@ -24,7 +26,7 @@ services:
       - "5008:5008"
     environment:
       - PORT=5008
-      - YSWEET_CONNECTION_STRING=ys://y-sweet:8080
+      - YSWEET_CONNECTION_STRING=ys://${Y_SWEET_SERVER_TOKEN:?set Y_SWEET_SERVER_TOKEN in .env (see template-.env)}@y-sweet:8080
     env_file: "./.env"
     depends_on:
       - y-sweet

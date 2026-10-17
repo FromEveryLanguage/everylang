@@ -35,14 +35,14 @@ Options:
 
 | Flag | Meaning |
 |---|---|
-| `--server-url=<url>` | Y-Sweet / API server (default `https://notelate.com`) |
+| `--server-url=<url>` | The app server snapshots are POSTed to — not Y-Sweet (default `https://notelate.com`) |
 | `--branch=<branch>` | Release branch to track (default `proclaim-stable`) |
 | `--write-key=<key>` | Shared key authorizing this machine's writes (see below). Omit on a reinstall to keep the installed key |
 | `--no-auto-update` | Install without the pull-on-launch update; runs whatever is checked out |
 
 ### Write key
 
-The server gates writes — full Y-Sweet tokens and `/api/translateItem` — on a shared
+The server gates writes — here, the slide snapshot POST — on a shared
 per-device key ([WRITE_KEYS.md](WRITE_KEYS.md)). Give this machine its key at
 install time:
 
@@ -271,7 +271,7 @@ No manual intervention needed! The service runs seamlessly across midnight trans
 
 ## Environment Variables
 
-To customize Proclaim or Y-Sweet URLs, edit the plist in LaunchAgents:
+To customize the Proclaim or server URLs, edit the plist in LaunchAgents:
 
 ```bash
 open ~/Library/LaunchAgents/org.kenarnold.proclaim-service.plist
@@ -288,8 +288,8 @@ Find the `EnvironmentVariables` section and uncomment/update the URLs you need:
 ```xml
 <key>EnvironmentVariables</key>
 <dict>
-    <key>YSWEET_URL</key>
-    <string>http://your-ysweet-url.com</string>
+    <key>SERVER_URL</key>
+    <string>https://your-app-server.example</string>
     <key>PROCLAIM_BASE_URL</key>
     <string>http://your-proclaim-url:52195</string>
     <key>PROCLAIM_WRITE_KEY</key>
@@ -316,7 +316,7 @@ cat ~/Library/Logs/proclaim-service/stderr.log
 Common issues:
 - Path to wrapper script is incorrect
 - Python/uv is not in PATH (`UV_BIN` in the plist's EnvironmentVariables)
-- Proclaim or Y-Sweet is not running
+- Proclaim or the app server is not running
 
 ### Updates aren't being picked up
 

@@ -1,6 +1,6 @@
 """Shared pytest setup for the Proclaim service tests.
 
-The service module asserts ``YSWEET_URL`` at import time, so it must be set
+The service module asserts ``SERVER_URL`` at import time, so it must be set
 before ``import proclaim_service``. The repo root is also added to sys.path so
 the top-level module is importable regardless of where pytest is invoked from.
 """
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-os.environ.setdefault("YSWEET_URL", "http://localhost:8000")
+os.environ.setdefault("SERVER_URL", "http://localhost:8000")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 

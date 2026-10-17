@@ -1,6 +1,5 @@
 /**
- * Browser-side client for the slide-translation server endpoints, plus a small
- * helper for turning pasted text into slides.
+ * Browser-side client for the slide-translation server endpoints.
  */
 import type {
   SlideLibraryRecord,
@@ -8,18 +7,14 @@ import type {
   SlideTranslationEntry,
 } from './slideTranslation.ts';
 import type { PerSlideTranslation } from './slideItemTranslation.ts';
-import type { BibleToolCall } from '../bible.ts';
 import type { Content } from '@google/genai';
 import { getDocId } from './getDocId.ts';
 import { apiFetch } from './writeKey.ts';
 
-export type { BibleToolCall };
 export type { Content };
 
 export interface TranslateItemResult {
   translations: Record<string, PerSlideTranslation[]>;
-  /** Bible passages the model looked up while drafting (for review-screen observability). */
-  bibleLookups: BibleToolCall[];
   /** Key under which the agent conversation was stored (itemId, or a content hash). */
   conversationId: string;
 }
@@ -64,38 +59,6 @@ export interface ConversationTranslationUpdate {
 export interface ConversationMessageResult {
   conversation: SlideConversation;
   updatedTranslations: ConversationTranslationUpdate[];
-  bibleLookups: BibleToolCall[];
-}
-
-/**
- * Split pasted/edited text into slides, mirroring the Proclaim convention: a line
- * that is exactly `--` is an explicit slide break; if there are none, blank lines
- * separate slides. (Song-section and {Credits}/{Source} handling is Proclaim-only
- * and lives in the Python service.)
- */
-export function parseSlidesInput(text: string): string[] {
-  const normalized = text.replace(/\r\n?/g, '\n');
-  const hasExplicitDelimiter = /^[ \t]*--[ \t]*$/m.test(normalized);
-
-  const slides: string[] = [];
-  let current: string[] = [];
-  const flush = () => {
-    const slide = current.join('\n').trim();
-    if (slide) slides.push(slide);
-    current = [];
-  };
-
-  for (const line of normalized.split('\n')) {
-    const isExplicitBreak = /^[ \t]*--[ \t]*$/.test(line);
-    const isBlankBreak = !hasExplicitDelimiter && line.trim() === '';
-    if (isExplicitBreak || isBlankBreak) {
-      flush();
-    } else {
-      current.push(line);
-    }
-  }
-  flush();
-  return slides;
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
@@ -155,12 +118,10 @@ export async function translateItem(
 ): Promise<TranslateItemResult> {
   const data = await postJson<{
     translations: Record<string, PerSlideTranslation[]>;
-    bibleLookups?: BibleToolCall[];
     conversationId: string;
   }>('/api/translateItem', { slides, languages, itemTitle, itemId, docId: getDocId() });
   return {
     translations: data.translations,
-    bibleLookups: data.bibleLookups ?? [],
     conversationId: data.conversationId,
   };
 }
@@ -183,7 +144,6 @@ export async function sendConversationMessage(
   const data = await postJson<{
     conversation: SlideConversation;
     updatedTranslations?: ConversationTranslationUpdate[];
-    bibleLookups?: BibleToolCall[];
   }>('/api/slideConversation/message', {
     itemId,
     text,
@@ -193,7 +153,6 @@ export async function sendConversationMessage(
   return {
     conversation: data.conversation,
     updatedTranslations: data.updatedTranslations ?? [],
-    bibleLookups: data.bibleLookups ?? [],
   };
 }
 

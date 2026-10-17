@@ -16,6 +16,8 @@ Short, surfaced-not-comprehensive documentation. Coding agents can grep; humans 
   decides: the server-owned pin/proposal/date precedence, the operator control on `/status`,
   and why `SESSION_TIMEZONE` has to be the church's zone. **Read before changing anything
   that resolves a doc id.**
+- [LAYOUT_URLS.md](LAYOUT_URLS.md) — building a layout URL by hand (booth screens, combinations
+  the landing page has no card for): the `|`/`,` grammar and copyable examples.
 - [WRITE_KEYS.md](WRITE_KEYS.md) — shared-key write authorization: what needs a key, the
   observe→enforce rollout, how each device is given one, and how to rotate.
 - [OBSERVABILITY.md](OBSERVABILITY.md) — what to observe about the live-audio backend

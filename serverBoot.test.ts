@@ -112,6 +112,9 @@ beforeAll(async () => {
       LIVEKIT_API_SECRET: '',
       WRITE_KEYS: '',
       WRITE_AUTH_MODE: 'off',
+      SITE_NAME: 'Test Fellowship',
+      SITE_LANGUAGES: 'es, ht,pt',
+      LIVE_AUDIO_SOURCE_LANGUAGE: '',
       // Keep the pinned session and reviewed-translation library out of ./audio-cache.
       SESSION_REGISTRY_PATH: path.join(stateDir, 'current-session.json'),
       SLIDE_LIBRARY_PATH: path.join(stateDir, 'slide-library.json'),
@@ -138,6 +141,9 @@ describe('server boot', () => {
     expect(await res.json()).toEqual({
       posthogKey: 'phc_test',
       posthogHost: 'http://127.0.0.1:9',
+      siteName: 'Test Fellowship',
+      siteLanguages: ['es', 'ht', 'pt'],
+      sourceLanguage: 'en',
     });
   });
 });
@@ -207,6 +213,9 @@ describe('boot without telemetry configured', () => {
         LIVEKIT_API_SECRET: '',
         WRITE_KEYS: '',
         WRITE_AUTH_MODE: 'off',
+        SITE_NAME: '',
+        SITE_LANGUAGES: '',
+        LIVE_AUDIO_SOURCE_LANGUAGE: '',
         SESSION_REGISTRY_PATH: path.join(bareStateDir, 'current-session.json'),
         SLIDE_LIBRARY_PATH: path.join(bareStateDir, 'slide-library.json'),
       },
@@ -226,7 +235,7 @@ describe('boot without telemetry configured', () => {
     const res = await fetch(`${bareBase}/api/config`);
     expect(res.status).toBe(200);
     // Empty rather than absent, so the install script's fetch of this still parses.
-    expect(await res.json()).toEqual({ posthogKey: '', posthogHost: '' });
+    expect(await res.json()).toMatchObject({ posthogKey: '', posthogHost: '' });
   });
 
   it('says on stdout that telemetry is off, rather than failing silently', () => {
@@ -256,7 +265,19 @@ describe('boot with bad config', () => {
     await fs.rm(stateDir, { recursive: true, force: true });
   });
 
-  it('exits 1 on a missing required variable even with PostHog autocapture armed', async () => {
+  it.each([
+    {
+      what: 'a missing required variable',
+      env: { GEMINI_API_KEY: '' },
+      message: 'Environment variable GEMINI_API_KEY is not set',
+    },
+    {
+      // A typo'd landing-page language must stop the server, not vanish from the page (#133).
+      what: 'a SITE_LANGUAGES code nothing can serve',
+      env: { SITE_LANGUAGES: 'en,frr' },
+      message: 'SITE_LANGUAGES lists frr',
+    },
+  ])('exits 1 on $what even with PostHog autocapture armed', async ({ env, message }) => {
     const port = await freePort();
     let output = '';
     const proc = spawn(process.execPath, ['server.ts'], {
@@ -265,9 +286,10 @@ describe('boot with bad config', () => {
       env: {
         ...process.env,
         PORT: String(port),
-        // The point of this test: blank (not absent, see above re dotenv), with telemetry
-        // configured so autocapture's listeners are in place when the throw happens.
-        GEMINI_API_KEY: '',
+        // Valid config, overridden below by each case's one bad value — blanks rather than
+        // absences, see above re dotenv. Telemetry is configured so autocapture's
+        // listeners are in place when the throw happens.
+        GEMINI_API_KEY: 'test-key',
         ELEVENLABS_API_KEY: 'test-key',
         YSWEET_CONNECTION_STRING: 'ys://127.0.0.1:9',
         VITE_PUBLIC_POSTHOG_KEY: 'phc_test',
@@ -277,8 +299,12 @@ describe('boot with bad config', () => {
         LIVEKIT_API_SECRET: '',
         WRITE_KEYS: '',
         WRITE_AUTH_MODE: 'off',
+        SITE_NAME: '',
+        SITE_LANGUAGES: '',
+        LIVE_AUDIO_SOURCE_LANGUAGE: '',
         SESSION_REGISTRY_PATH: path.join(stateDir, 'current-session.json'),
         SLIDE_LIBRARY_PATH: path.join(stateDir, 'slide-library.json'),
+        ...env,
       },
     });
     proc.stdout?.on('data', (d) => (output += d));
@@ -298,7 +324,7 @@ describe('boot with bad config', () => {
       });
     });
 
-    expect(output).toContain('Environment variable GEMINI_API_KEY is not set');
+    expect(output).toContain(message);
     expect(exitCode).toBe(1);
   }, 30_000);
 });

@@ -1,6 +1,6 @@
 # ADR-001: The server owns slide publishing and translation; the Proclaim service pushes snapshots
 
-**Status:** Proposed
+**Status:** Accepted — implemented in its simplest form (see *Implementation notes*)
 **Date:** 2026-09-11
 **Deciders:** Ken Arnold
 
@@ -273,3 +273,22 @@ destination.
        `slide_translator.py`, `session_client.py`, their tests, the fake websocket/Provider in
        `tests/helpers.py`, and the `pycrdt` / `httpx_ws` dependencies. Update
        [ARCHITECTURE.md](ARCHITECTURE.md)'s writer table and [CLAUDE.md](../CLAUDE.md).
+
+## Implementation notes (2026-10-05)
+
+Shipped as a straight replacement, not the one-Sunday overlap (item 8): the existing pipeline
+failed in service on 2026-10-04, so there is no known-good path to keep beside it. Done
+deliberately smaller than the sketch above:
+
+- **Source selection** is the smallest rule that handles the rehearsal: only an on-air sender
+  can be followed; the followed one is kept while it stays on air and posts within 30 s;
+  otherwise the most recent other on-air sender takes over. No `SLIDE_SOURCE` designation and
+  no operator override from `/status` yet; the remedy for "wrong machine followed" is to take
+  it off air. Not shared with the audio supervisor (item 9 untouched).
+- **`/status`** gets liveness from the existing writer sightings (each POST is one; a
+  not-followed sender shows as `(standby)`), not a new "what each source shows" list.
+- An explicit `docId` in the POST (replay, the `doc_id` argument) bypasses both the
+  registry and source selection, as `?doc=` does in a browser.
+- `proclaimService` keeps its shape and key; the server writes it, only when it changes.
+- Deleted per item 10; `SERVER_URL` replaces the misnamed `YSWEET_URL` (still read, since
+  installed plists are never rewritten).

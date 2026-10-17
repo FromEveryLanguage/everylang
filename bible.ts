@@ -100,7 +100,7 @@ export interface BibleLookupArgs {
   endVerse?: number;
 }
 
-/** Observability record for one tool call — surfaced to PostHog and the review screen. */
+/** Observability record for one tool call, reported to PostHog. (The review screen reads the lookup itself from the stored conversation.) */
 export interface BibleToolCall {
   reference: string;
   /** Languages for which canonical text was found. */

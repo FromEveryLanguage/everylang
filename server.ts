@@ -34,6 +34,7 @@ import { SimulateScenarioKind } from '@livekit/rtc-node';
 import TranslationSessionManager, { SPEAKS_ATTRIBUTE } from './live-audio/translation-session-manager.ts';
 import { parseSilenceThresholdDbfs } from './live-audio/translation-bridge.ts';
 import { normalizeSourceLanguage } from './src/liveAudioConfig.ts';
+import { DEFAULT_SITE_LANGUAGES, parseSiteLanguages } from './src/siteLanguages.ts';
 import { connectServerDoc } from './serverDoc.ts';
 import { WriteAuth, auditDistinctId, formatAudit, resolveWriteAuthConfig } from './writeAuth.ts';
 import {
@@ -44,6 +45,8 @@ import {
 } from './writeAuthRoutes.ts';
 import { SessionRegistry } from './sessionRegistry.ts';
 import { makeSessionRouter } from './sessionRoutes.ts';
+import { makeSlideSnapshotRouter } from './slideSnapshotRoutes.ts';
+import { languages as FRONTEND_LANGUAGES } from './src/translationLanguages.ts';
 import { limitFromEnv, makeRateLimit } from './rateLimit.ts';
 
 // Get API keys from environment variables, crash if not set
@@ -113,10 +116,13 @@ const SLIDE_TRANSLATION_CONTEXT = process.env.SLIDE_TRANSLATION_CONTEXT ||
   'These slides are shown at a Presbyterian Church in America (PCA) worship service. The ' +
   'translations are provided alongside the service so non-English speakers can follow along — ' +
   'they are for understanding and reference, not for congregational singing or as an official ' +
-  'literal/liturgical rendering. Aim for clear, natural, reverent wording in each target language.';
+  'literal/liturgical rendering. When writing new translations, aim for clear and natural wording. ' +
+  'However, that does NOT apply to Scripture texts; they should be looked up using the tool and ' +
+  'the wording used without revision, even if it seems dated or awkward.';
 
 const ySweetConnectionString = getEnvOrCrash("YSWEET_CONNECTION_STRING");
-console.log('Y-Sweet Connection String:', ySweetConnectionString);
+// The userinfo part of a ys:// string is Y-Sweet's server token, a full-access credential.
+console.log('Y-Sweet Connection String:', ySweetConnectionString.replace(/\/\/[^@/]*@/, '//***@'));
 const documentManager = new DocumentManager(ySweetConnectionString);
 
 const elevenLabsClient = new ElevenLabsClient({
@@ -305,7 +311,33 @@ const app = express();
 // `compression` negotiates br > gzip > deflate from Accept-Encoding, and skips types that
 // are already compressed, so the cached mp3s under /audio-cache pass through untouched.
 app.use(compression());
-app.use(express.static("dist"));
+// Vite content-hashes everything under /assets, so a URL there *is* its content: cache it
+// for a year and never revalidate. The unhashed entry points (index.html, sw.js) are what
+// name the current hashes, so they must always be revalidated — an ETag 304 when nothing
+// changed — or a deploy stays invisible until the browser feels like refetching them.
+// Old bundles never need invalidating: a new index.html simply stops asking for them.
+// The year is granted per file, only to names carrying Vite's `-[hash]` suffix: anything
+// else that ends up under /assets (a stray file in public/assets/, a renamed output) would
+// otherwise be pinned in every browser until it happened to change name.
+const VITE_HASHED_NAME = /-[A-Za-z0-9_-]{8}\.[a-z0-9]+(?:\.map)?$/;
+app.use('/assets', express.static('dist/assets', {
+  setHeaders: (res, filePath) => {
+    if (VITE_HASHED_NAME.test(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  },
+}));
+app.use(express.static("dist", {
+  setHeaders: (res, filePath) => {
+    if (/(?:^|\/)(?:index\.html|sw\.js)$/.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  },
+}));
+// A Proclaim snapshot is the whole service order, every slide of every item plus each item's
+// own translation screen, and the default 100kb is within reach of a long service. Registered
+// first so this route's body is parsed with the larger limit (the general parser then skips it).
+app.use('/api/proclaim', express.json({ limit: '5mb' }));
 app.use(express.json());
 app.use('/audio-cache', express.static(AUDIO_CACHE_DIR));
 
@@ -317,11 +349,19 @@ app.use('/audio-cache', express.static(AUDIO_CACHE_DIR));
 setupExpressRequestContext(phClient, app);
 
 
-// Public config for services that need to report to PostHog
+// Public config: PostHog for services that report to the same project (the Proclaim
+// install script reads only these two), and the landing page's per-deployment settings
+// (issue #133). SITE_LANGUAGES is validated here at boot, so a typo'd code stops the
+// server rather than quietly disappearing from the page.
+const SITE_NAME = process.env.SITE_NAME?.trim() ?? '';
+const SITE_LANGUAGES = parseSiteLanguages(process.env.SITE_LANGUAGES, DEFAULT_SITE_LANGUAGES);
 app.get('/api/config', (_req, res) => {
   res.json({
     posthogKey: process.env.VITE_PUBLIC_POSTHOG_KEY ?? '',
     posthogHost: process.env.VITE_PUBLIC_POSTHOG_HOST ?? '',
+    siteName: SITE_NAME,
+    siteLanguages: SITE_LANGUAGES,
+    sourceLanguage: DEFAULT_SOURCE_LANGUAGE_ENV,
   });
 });
 
@@ -352,6 +392,49 @@ app.use(
     registry: sessionRegistry,
     requireWriteKey,
     log: (message) => console.log(message),
+  }),
+);
+
+// The Proclaim feed (ADR-001): the service posts what Proclaim shows; publishing it into the
+// session doc and translating ahead happen here, against a synced doc, in one process.
+// Languages to translate slides into ahead of time. Defaults to the frontend's picker, which
+// is what viewers can choose and therefore what is worth paying for.
+const SLIDE_TRANSLATION_LANGUAGES = (process.env.SLIDE_TRANSLATION_LANGUAGES ?? FRONTEND_LANGUAGES.join(','))
+  .split(',')
+  .map((language) => language.trim())
+  .filter(Boolean);
+console.log(`[slides] translating ahead into: ${SLIDE_TRANSLATION_LANGUAGES.join(', ') || '(none)'}`);
+app.use(
+  '/api/proclaim',
+  makeSlideSnapshotRouter({
+    registry: sessionRegistry,
+    writeAuth,
+    getDoc: (docId) => slideConversations.getDoc(docId),
+    languages: SLIDE_TRANSLATION_LANGUAGES,
+    translate: async ({ slides, itemTitle, itemId, existingTranslation, docId }) => {
+      try {
+        const { translations } = await draftItem({
+          slides,
+          languages: SLIDE_TRANSLATION_LANGUAGES,
+          docId,
+          existingTranslation: existingTranslation ?? undefined,
+          itemTitle: itemTitle && itemTitle !== 'Unknown' ? itemTitle : undefined,
+          itemId,
+          source: 'translateAhead',
+        });
+        console.log(`[slides] translated ahead: ${itemId} (${itemTitle}) into ${docId}`);
+        return translations;
+      } catch (err) {
+        console.warn(`[slides] translate-ahead failed for ${itemId} (${itemTitle}):`, err);
+        if (err instanceof Error) phClient.captureException(err);
+        return null;
+      }
+    },
+    log: (message) => console.log(message),
+    onError: (err) => {
+      console.warn('[slides] translate-ahead error:', err);
+      if (err instanceof Error) phClient.captureException(err);
+    },
   }),
 );
 
@@ -534,23 +617,6 @@ app.get('/api/livekit/translate/status', (req, res) => {
   }
 });
 
-// Legacy endpoint, kept for clients cached from before the presence supervisor.
-// Leaving the LiveKit room is now the real "unsubscribe" signal; a beacon here just
-// nudges the supervisor to notice sooner.
-app.post('/api/livekit/translate/unsubscribe', (req, res) => {
-  try {
-    if (!getLiveKitConfig()) return res.status(503).json({ error: 'LiveKit not configured' });
-    const sessionId = req.body?.sessionId as string | undefined;
-    if (!sessionId) return res.status(400).json({ error: 'Missing sessionId' });
-    TranslationSessionManager.getInstance().poke(sessionId);
-    return res.json({ success: true });
-  } catch (error) {
-    phClient.captureException(error);
-    console.error('LiveKit unsubscribe error:', error);
-    return res.status(500).json({ error: 'Failed to unsubscribe' });
-  }
-});
-
 
 // Force a LiveKit reconnection scenario on a session's translator bridges.
 //
@@ -655,42 +721,45 @@ app.post('/api/slideLibrary', requireWriteKey('/api/slideLibrary'), async (req, 
   return res.json({ ok: true, record });
 });
 
-// Translate a whole service item, reusing reviewed library entries and filling the rest
-// with one strong-model call for all languages at once. Body:
-// { slides: string[], languages: string[], reference?: string }. `reference` is a free-text
-// dump (possibly multilingual, arbitrarily segmented) the model uses where it covers a
-// target language and ignores otherwise. Returns { translations: { [language]: PerSlideTranslation[] } }.
-app.post('/api/translateItem', requireWriteKey('/api/translateItem'), async (req, res) => {
-  const slides = (req.body?.slides as string[]) ?? [];
-  const requestedLanguages = (req.body?.languages as string[]) ?? [];
-  const reference = (req.body?.reference as string | undefined)?.trim();
-  // An existing translation from the presentation software (possibly machine-generated) —
-  // grounding the model can keep where good and correct where not.
-  const existingTranslation = (req.body?.existingTranslation as string | undefined)?.trim();
-  // Item title (e.g. a Bible citation like "Psalm 23") — a lookup cue the slide text lacks.
-  const itemTitle = (req.body?.itemTitle as string | undefined)?.trim();
-  // Conversation key: the Proclaim itemId when this came from a service item (so the review
-  // screen can find it by itemId), else a content hash for ad-hoc pastes.
-  const itemId = (req.body?.itemId as string | undefined)?.trim();
-  // The per-day doc the conversation belongs to (where the browser reads it live).
-  const docId = (req.body?.docId as string | undefined)?.trim();
-  if (!Array.isArray(slides) || requestedLanguages.length === 0) {
-    return res.status(400).json({ ok: false, error: 'Missing slides or languages' });
-  }
-  
-  if (!docId) return res.status(400).json({ ok: false, error: 'Missing docId' });
-
+/**
+ * Translate a whole service item, reusing reviewed library entries and filling the rest with
+ * one strong-model call for all languages at once, and record the agent conversation in the
+ * session doc for the review screen. Shared by `/api/translateItem` (the review screen's
+ * "draft") and the server's own translate-ahead worker for the Proclaim feed.
+ *
+ * `reference` is a free-text dump (possibly multilingual, arbitrarily segmented) the model
+ * uses where it covers a target language. `existingTranslation` is the presentation
+ * software's own translation — grounding the model can keep where good and correct where
+ * not. `itemTitle` (e.g. "Psalm 23") is a lookup cue the slide text lacks. `itemId` keys the
+ * conversation so the review screen can find it; ad-hoc pastes fall back to a content hash.
+ */
+async function draftItem({
+  slides,
+  languages: requestedLanguages,
+  docId,
+  reference,
+  existingTranslation,
+  itemTitle,
+  itemId,
+  source,
+}: {
+  slides: string[];
+  languages: string[];
+  docId: string;
+  reference?: string;
+  existingTranslation?: string;
+  itemTitle?: string;
+  itemId?: string;
+  source: string;
+}) {
   // Stable conversation id up front so it can tag the LLM trace (and any bible_lookup events)
   // as the agent runs — this is what makes a conversation's generations group in PostHog.
   const conversationId = conversationKey(itemId, slides);
   const observability = slideObservability(conversationId, docId, {
     itemTitle: itemTitle || undefined,
-    source: 'translateItem',
+    source,
   });
-
   const lookup = slideLibrary.toLookup();
-  // Bible lookups the model made while drafting — reported to PostHog and the review UI.
-  const bibleLookups: BibleToolCall[] = [];
   // The raw agent history, captured so we can persist it for review + follow-ups.
   let conversationMessages: Content[] = [];
   // Token usage across the draft's model calls (surfaced so cache hits/cost are visible).
@@ -709,10 +778,7 @@ app.post('/api/translateItem', requireWriteKey('/api/translateItem'), async (req
         itemTitle: itemTitle || undefined,
         model: STRONG_MODEL,
         observability,
-        onToolCall: (call) => {
-          bibleLookups.push(call);
-          recordBibleLookup(call, conversationId, docId);
-        },
+        onToolCall: (call) => recordBibleLookup(call, conversationId, docId),
         onConversation: (messages) => {
           conversationMessages = messages;
         },
@@ -751,7 +817,32 @@ app.post('/api/translateItem', requireWriteKey('/api/translateItem'), async (req
     usage,
   });
 
-  return res.json({ ok: true, translations, bibleLookups, conversationId });
+  return { translations, conversationId };
+}
+
+// The review screen's "draft" for one item. Body: { slides, languages, docId, reference?,
+// existingTranslation?, itemTitle?, itemId? } — see draftItem.
+app.post('/api/translateItem', requireWriteKey('/api/translateItem'), async (req, res) => {
+  const slides = (req.body?.slides as string[]) ?? [];
+  const requestedLanguages = (req.body?.languages as string[]) ?? [];
+  // The per-day doc the conversation belongs to (where the browser reads it live).
+  const docId = (req.body?.docId as string | undefined)?.trim();
+  if (!Array.isArray(slides) || requestedLanguages.length === 0) {
+    return res.status(400).json({ ok: false, error: 'Missing slides or languages' });
+  }
+  if (!docId) return res.status(400).json({ ok: false, error: 'Missing docId' });
+
+  const result = await draftItem({
+    slides,
+    languages: requestedLanguages,
+    docId,
+    reference: (req.body?.reference as string | undefined)?.trim(),
+    existingTranslation: (req.body?.existingTranslation as string | undefined)?.trim(),
+    itemTitle: (req.body?.itemTitle as string | undefined)?.trim(),
+    itemId: (req.body?.itemId as string | undefined)?.trim(),
+    source: 'translateItem',
+  });
+  return res.json({ ok: true, ...result });
 });
 
 // The review screen reads the conversation live from the `slideConversations` Y.Map in its
@@ -788,7 +879,6 @@ app.post('/api/slideConversation/message', requireWriteKey('/api/slideConversati
   writeConversation(conversationsMap, conversation);
 
   const bibleLanguages = conversation.languages.filter((language) => BIBLE_TRANSLATIONS[language]);
-  const bibleLookups: BibleToolCall[] = [];
   // Same trace id as the initial draft so this follow-up's generations group with it.
   const observability = slideObservability(itemId, docId, { source: 'followUp' });
   try {
@@ -800,7 +890,6 @@ app.post('/api/slideConversation/message', requireWriteKey('/api/slideConversati
       currentTranslations,
       observability,
       onToolCall: (call) => {
-        bibleLookups.push(call);
         recordBibleLookup(call, itemId, docId);
         // Stream the agent's progress (new tool-call/response messages) to watchers.
         writeConversation(conversationsMap, conversation);
@@ -818,7 +907,7 @@ app.post('/api/slideConversation/message', requireWriteKey('/api/slideConversati
         updatedTranslations.push({ language, sourceText: block.sourceText, text: block.translatedText });
       }
     }
-    return res.json({ ok: true, conversation, updatedTranslations, bibleLookups });
+    return res.json({ ok: true, conversation, updatedTranslations });
   } catch (err) {
     setStatusIn(conversationsMap, itemId, 'error');
     console.error('slideConversation/message failed:', err);
@@ -996,7 +1085,7 @@ app.get('/*splat', (req, res, next) => {
   if (req.path.match(/\.[a-zA-Z0-9]+$/)) {
     return next();
   }
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'), { headers: { 'Cache-Control': 'no-cache' } });
 });
 
 // Last middleware, after every route: Express dispatches errors *forward* from the layer

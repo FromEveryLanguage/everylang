@@ -63,13 +63,13 @@ derived data) drives the testing/replay strategy.
   packaging, entitlements, or the connect/retry logic.
 - **proclaim_service.py**: polls Proclaim's local HTTP API (sub-second while on air, backing
   off when not — see `PROCLAIM_POLL_INTERVAL*`) and reads its SQLite DB,
-  pushes presentations + slide status into Yjs. Internally decoupled into a **slide feed**
-  (`ProclaimFeed`, the source) and **consumers** (a Yjs publisher + a translation worker),
-  wired by a source-agnostic runtime — see "Testing seams". Installed as a macOS LaunchAgent
+  and POSTs the full state (`FeedSnapshot`) to the server on every change and as a heartbeat.
+  It holds no Yjs connection: the server publishes the slides and translates ahead
+  ([ADR-001](adr-001-server-owned-slide-sync.md)). Installed as a macOS LaunchAgent
   that runs `proclaim_service_launch.sh`: every launch fast-forwards the checkout to the
   `proclaim-stable` release branch and then starts the service regardless of how the update
   went, so the machine degrades to "runs last version", never "doesn't run". The running SHA
-  is announced in the `status` map (`proclaimService`).
+  rides each snapshot and the server files it in the `status` map (`proclaimService`).
 - **Y-Sweet**: persistence and fan-out for the per-service Y.Doc (`doc-YYYY-MM-DD`).
 
 ## The Yjs doc is stimulus + response mixed together
@@ -81,7 +81,7 @@ doc is *derived* data that the system under test will regenerate.
 | Writer | Writes into Yjs | True input boundary |
 |---|---|---|
 | Human editor (browser) | `sourceBlocks` edits | Keystrokes — these *are* Yjs deltas; Yjs-level recording is correct **only** for this writer |
-| `proclaim_service.py` (slide feed → Yjs publisher + translator) | `proclaimServiceOrder`, `proclaimPresentations`, `proclaimStatus`, `slideTranslations`, `status.proclaimService` | Proclaim local HTTP API responses + `PresentationManager.db` |
+| Server slide feed (`slideSnapshotRoutes.ts` / `slideSync.ts`, fed by `proclaim_service.py`) | `proclaimServiceOrder`, `proclaimPresentations`, `proclaimStatus`, `slideTranslations`, `status.proclaimService` | The `FeedSnapshot` POSTs — which the service builds from Proclaim's local HTTP API + `PresentationManager.db` |
 | translation-bridge / transcript-log | `liveTranscriptSegments-{code}` (one utterance per entry, stamped `startedAt` + `endedAt`; the silence between utterances is derived from those, not stored) | Organizer audio track + Gemini Live responses — including *when* each delta arrived, which only the writer sees |
 | Block translation manager | per-language translations, `notesTranslationCache` | Source blocks + `/api/requestTranslatedBlocks` (Gemini) |
 | Slide translation agent | slide translations, conversations, library | Slide texts + Gemini |
@@ -125,8 +125,8 @@ writer once each component announces its clientID (planned: via the status heart
   *which* one is decided in one place and read by everyone: `?doc=` override, else an
   operator pin set from `/status`, else the Proclaim service's accepted proposal, else the
   date in `SESSION_TIMEZONE`. Browsers fetch it before mounting anything (`src/getDocId.ts`,
-  `src/SessionGate.tsx`); the service proposes what is on air and connects to whatever it is
-  told (`session_client.py`); the macOS audio feeder asks the same endpoint and re-asks every
+  `src/SessionGate.tsx`); the service's snapshots carry what is on air as a proposal, and the
+  server publishes them into whatever doc it decides (`slideSnapshotRoutes.ts`); the macOS audio feeder asks the same endpoint and re-asks every
   60s while publishing, so a pin moves the microphone too rather than splitting the service
   (`SessionClient.swift`). Nobody keeps a private copy of the date formula to fall back on.
   This is issue #111 — parties computing it independently and never comparing answers — and it
@@ -145,14 +145,14 @@ writer once each component announces its clientID (planned: via the status heart
 ## Testing seams
 
 - Pure component / Yjs-container split on the frontend (see CLAUDE.md).
-- Python tests fake the Proclaim DB, Y-Sweet websocket, and provider (see `tests/helpers.py`),
-  and inject scaled-down timing — the model for the TS side.
-- The Proclaim writer is split at a serializable seam: a `SlideFeed` (source; `ProclaimFeed`)
-  emits a complete `FeedSnapshot` each poll, and the consumers (`YjsSlidePublisher`,
-  `SlideTranslator`) act on it, wired by `SlideSyncRuntime`. A fake/replayed feed drives the
-  **real** consumers with no Proclaim in the loop (`tests/test_slide_seam.py`) — the
-  "simulated proclaim" mode of the replay harness, in miniature. (The snapshot's single-write
-  publisher also fixed #67's status/presentation desync.)
+- Python tests fake the Proclaim DB and the server (see `tests/helpers.py`), and inject
+  scaled-down timing.
+- The Proclaim path is split at a serializable seam that is also the network boundary: a
+  `SlideFeed` (source; `ProclaimFeed`) emits a complete `FeedSnapshot` each poll, the service
+  POSTs it, and the server's consumers (`publishSnapshot`, `TranslateAhead` in `slideSync.ts`)
+  act on it. `slideSnapshotRoutes.test.ts` posts the committed recording through the **real**
+  route into a local Y.Doc — the "simulated proclaim" mode of the replay harness, in
+  miniature. (The single-transaction publish is what fixed #67's status/presentation desync.)
 - The replay harness (tracking issue supersedes #69) extends these seams into recorded,
   shareable fixtures with per-component real/simulated switches; the `FeedSnapshot`
   `to_json`/`from_json` round-trip is the slot where recorded Proclaim output plugs in. The

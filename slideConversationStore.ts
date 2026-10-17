@@ -132,13 +132,22 @@ export class SlideConversationStore {
    * initial sync so callers read real state rather than an empty doc.
    */
   async getConversationsMap(docId: string): Promise<ConversationMap> {
+    return (await this.getDoc(docId)).getMap<SlideConversation>(CONVERSATIONS_MAP);
+  }
+
+  /**
+   * The whole per-day doc, synced. The Proclaim feed publishes slides and translations
+   * through this same connection (slideSnapshotRoutes.ts), so the server holds one
+   * connection per doc rather than one per writer.
+   */
+  async getDoc(docId: string): Promise<Y.Doc> {
     let entry = this.docs.get(docId);
     if (!entry) {
       entry = connectServerDoc(docId, this.documentManager);
       this.docs.set(docId, entry);
     }
     await entry.synced;
-    return entry.doc.getMap<SlideConversation>(CONVERSATIONS_MAP);
+    return entry.doc;
   }
 
   /** Tear down all connections (shutdown / tests). */

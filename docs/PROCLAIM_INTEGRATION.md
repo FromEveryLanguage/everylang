@@ -4,21 +4,23 @@ This integration syncs current slide text from Proclaim to the live-notes applic
 
 ## Architecture
 
-The integration uses **Yjs** for real-time synchronization:
+The service reads Proclaim; the server does everything else
+([ADR-001](adr-001-server-owned-slide-sync.md)):
 
 1. **Python Service** (`proclaim_service.py`) - Runs on the computer with Proclaim
    - Polls Proclaim API for current presentation and slide status
    - Parses presentation content from the Proclaim database
-   - Updates Yjs shared state via Y-Sweet WebSocket connection
-   - Internally decoupled into a **slide feed** (`proclaim_feed.py`, the source) and
-     **consumers** (`yjs_publisher.py` for clients, `slide_translator.py` for translation),
-     wired by `slide_sync_runtime.py`. `proclaim_service.py` is just the entrypoint. The feed
-     emits a serializable snapshot per poll — the seam a future replay harness records.
+   - POSTs the full state (a `FeedSnapshot`, `slide_feed.py`) to `/api/proclaim/snapshot`
+     on every change and every ~10 s as a heartbeat (`snapshot_pusher.py`). It holds no
+     Yjs or Y-Sweet connection.
 
-2. **Yjs Shared State**
-   - `proclaimPresentations` (Y.Map) - Maps itemId → presentation data
-     - Each presentation contains: `{title: string, itemId: string, slides: Y.Array<string>}`
-   - `proclaimStatus` (Y.Map) - Current status: `{itemId: string, slideIndex: number}`
+2. **Server** (`slideSnapshotRoutes.ts`, `slideSync.ts`)
+   - Decides which doc the snapshot belongs to (the show's date is a proposal; see
+     [CURRENT_SESSION.md](CURRENT_SESSION.md))
+   - Publishes `proclaimServiceOrder` / `proclaimPresentations` / `proclaimStatus` in one
+     transaction through its own synced doc connection
+   - Translates the active item, then upcoming ones, into `slideTranslations` (never
+     overwriting a reviewed entry; each item's content once)
 
 3. **React Components** (`CurrentSlideViewer.tsx`)
    - **Container**: Reads from Yjs and extracts presentation data
@@ -53,45 +55,29 @@ uv run proclaim_service.py
 uv run proclaim_service.py my-custom-doc
 ```
 
-Environment variables:
-- `PROCLAIM_BASE_URL` - Proclaim API URL (default: `http://localhost:52195`)
-- `YSWEET_URL` - Express server URL (default: `http://localhost:8000`)
-- `PROCLAIM_POLL_INTERVAL` - Polling interval in seconds while on air (default: `0.5`)
-- `PROCLAIM_POLL_INTERVAL_OFF_AIR` - Polling interval while off air (default: `10`)
-- `PROCLAIM_DOC_ID` - Document ID (overridden by command line arg)
+Environment variables: see the top of `proclaim_service.py` (the server's URL is `SERVER_URL`;
+older installs set it as `YSWEET_URL`, which still works — it was always the app server, never
+Y-Sweet).
 
-Connection robustness tuning (rarely need changing):
-- `PROCLAIM_OFF_AIR_DISCONNECT_AFTER` - Seconds off air before dropping the Y-Sweet connection (default: `60`)
-- `PROCLAIM_RECONNECT_BACKOFF_INITIAL` / `PROCLAIM_RECONNECT_BACKOFF_MAX` - Exponential backoff bounds for reconnect attempts in seconds (default: `1.0` / `30.0`)
-- `PROCLAIM_WS_PING_INTERVAL` - Y-Sweet websocket keepalive ping interval in seconds (default: `15`)
-- `PROCLAIM_YSWEET_TOKEN_TIMEOUT` - Timeout in seconds for fetching a Y-Sweet token, so a cold server fails into retry rather than hanging (default: `30`)
+### Resilience
 
-### Connection lifecycle & resilience
-
-The service is designed to survive a Y-Sweet server that scales to zero and slow/cold
-reconnects:
-
-- **No connection until on air.** While Proclaim is off air the service only polls the
-  local Proclaim API; it holds no Y-Sweet connection. It connects the moment Proclaim
-  goes on air.
-- **Disconnect when idle.** After `PROCLAIM_OFF_AIR_DISCONNECT_AFTER` seconds off air it
-  drops the Y-Sweet connection (a short grace period avoids churn when switching between
-  presentations) and goes back to waiting.
-- **Automatic reconnect with backoff.** Any connection failure - a cold/slow token
-  fetch, a failed websocket upgrade, or a mid-session drop - is retried with exponential
-  backoff instead of killing the service. On (re)connect the current presentation and
-  slide are re-pushed so a freshly woken server gets the latest state.
-- **Active health checks.** The service pings the websocket each poll so a silently
-  dropped connection is detected promptly and triggers a reconnect (the underlying
-  library otherwise swallows the disconnect).
-- **The server names the doc.** The service reports the on-air show's scheduled date
-  (Proclaim's `DateGiven`) to `POST /api/session/propose` and connects to the doc it is
-  given back, once per session, immediately before connecting. A future-dated show is
-  accepted, so pre-staging the night before still works; a show dated *before today* is
-  refused and the service is told to use today's doc, which is the failure in
-  [#111](https://github.com/kcarnold/live-notes/issues/111). An operator pin set from
-  `/status` outranks anything the service can see, and the service logs whenever the
-  answer differs from what it proposed. See [CURRENT_SESSION.md](CURRENT_SESSION.md).
+- **Every POST is the whole state.** A lost, repeated, or retried snapshot is harmless; there
+  is no connection to resynchronize and nothing to re-push after an outage. A failed POST is
+  retried with backoff forever, and the first success restores everything.
+- **Off air is a heartbeat, not a disconnect.** Off-air snapshots keep being sent (slowly) so
+  `/status` can tell a quiet service from a dead one; the server applies only on-air ones.
+- **Two machines.** If two services are on air at once (the booth Mac and a laptop), the
+  server follows the one that went on air most recently, as each reports it; the other is
+  told `active: false`, logs which machine overtook it, and shows on `/status` as
+  standby. A second machine is expected to be someone rescuing or shadowing the booth, so
+  going on air means "show mine" — and taking it off air hands back. A service restart counts
+  as going on air again (the time is not persisted), so a restarted booth Mac takes over.
+- **The server names the doc.** The snapshot carries the show's scheduled date (Proclaim's
+  `DateGiven`) as a proposal. A future-dated show is accepted, so pre-staging the night before
+  still works; a show dated *before today* is refused and today's doc is used, which is the
+  failure in [#111](https://github.com/kcarnold/live-notes/issues/111). An operator pin set
+  from `/status` outranks it. The service logs the doc its slides went to whenever that
+  changes.
 
 ### 3. View Current Slide in Browser
 
@@ -110,21 +96,19 @@ On each poll (`PROCLAIM_POLL_INTERVAL` while on air, `PROCLAIM_POLL_INTERVAL_OFF
 - Fetches `/onair/session` to get session ID
 - Fetches `/onair/statusChanged` to get current slide index and item ID
 
-### 2. Presentation Changes → Update Yjs
+### 2. Presentation Changes → Snapshot
 
 When a new presentation is detected:
 - Queries Proclaim SQLite database for service item content
 - Parses rich text XML to extract slide text
 - Decodes the custom order sequence to get slides in correct order
-- Stores full presentation in `proclaimPresentations` Yjs map
-- Updates `proclaimStatus` with current itemId and slideIndex
-- Sends update to Y-Sweet WebSocket
+- Sends the whole snapshot to the server, which stores each changed item in
+  `proclaimPresentations` and the pointer in `proclaimStatus`
 
-### 3. Slide Changes → Update Yjs
+### 3. Slide Changes → Snapshot
 
 When the slide index changes:
-- Updates `proclaimStatus` in Yjs
-- Sends update to Y-Sweet WebSocket
+- Sends the (changed) snapshot; the server updates `proclaimStatus`
 
 ### 4. Browser Auto-Updates
 
@@ -148,8 +132,10 @@ The current slide viewer shows:
 Proclaim API/DB
     ↓ (poll)
 Python Service
-    ↓ (y-py WebSocket)
-Y-Sweet Server
+    ↓ (HTTP POST, full snapshot)
+App server (Express)
+    ↓ (server-side Yjs connection)
+Y-Sweet
     ↓ (Yjs sync)
 React Component
     ↓ (render)

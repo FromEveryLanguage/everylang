@@ -4,10 +4,9 @@ A ``SlideFeed`` produces a complete ``FeedSnapshot`` each poll cycle. The snapsh
 whole point of the decoupling: it is self-contained (never a delta) and JSON-round-trippable,
 so it can be
 
-- fanned out to multiple consumers (the Yjs publisher, the translation worker) that each
-  react to the *latest* state, and
-- (later, issue #70) recorded to disk and replayed to drive the real consumers with no
-  source in the loop.
+- POSTed to the server, which publishes it and translates ahead (``snapshot_pusher``,
+  ADR-001) — a lost or repeated snapshot is harmless because each one is everything, and
+- recorded to disk and replayed with no Proclaim in the loop (issue #70).
 
 This module is deliberately dependency-light and has **no import-time side effects** (no env
 reads, no asserts) so it can be imported in unit tests without a configured environment.
@@ -19,7 +18,6 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
-import anyio
 
 
 @dataclass(frozen=True)
@@ -138,8 +136,8 @@ class SlideFeed(Protocol):
     """A source of slide data. Implementations own their own polling/parse/caching.
 
     ``poll`` must never raise on a *source* problem (an unreachable/erroring source is an
-    off-air snapshot, not an exception); the runtime's error handling then only concerns the
-    downstream connection.
+    off-air snapshot, not an exception); the pusher's error handling then only concerns the
+    server.
     """
 
     async def poll(self) -> FeedSnapshot: ...
@@ -147,30 +145,3 @@ class SlideFeed(Protocol):
     def reset(self) -> None:
         """Drop all source-side caches (called on doc rollover so a new day starts clean)."""
         ...
-
-
-class SnapshotBus:
-    """Single-slot, conflating latest-value cell with a wake event.
-
-    Consumers that care only about the newest snapshot (not every intermediate one) read
-    ``current`` and ``await wait(...)`` to sleep until a new snapshot is published or the
-    timeout elapses. Publishing is non-blocking and never backs up the poll loop.
-    """
-
-    def __init__(self) -> None:
-        self._latest: Optional[FeedSnapshot] = None
-        self._event = anyio.Event()
-
-    def publish(self, snap: FeedSnapshot) -> None:
-        self._latest = snap
-        event, self._event = self._event, anyio.Event()
-        event.set()
-
-    @property
-    def current(self) -> Optional[FeedSnapshot]:
-        return self._latest
-
-    async def wait(self, timeout: float) -> None:
-        """Sleep until the next ``publish`` or ``timeout`` seconds, whichever comes first."""
-        with anyio.move_on_after(timeout):
-            await self._event.wait()

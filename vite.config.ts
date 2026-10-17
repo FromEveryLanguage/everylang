@@ -7,6 +7,14 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: {
     sourcemap: true,
+    // Viewers bring whatever phone they own, so build for older ones than Vite's default.
+    // The CSS target matters most: Tailwind v4 writes every theme color as oklch() with no
+    // fallback, and a browser without oklch drops all the colors without any error.
+    // Lowering cssTarget makes Lightning CSS emit hex values, with the wide-gamut versions
+    // in @supports blocks. The floor is Tailwind's @layer, which can't be lowered and needs
+    // Chrome 99 / Safari 15.4.
+    target: ['chrome99', 'safari15'],
+    cssTarget: ['chrome99', 'safari15'],
   },
   server: {
     port: 5008,

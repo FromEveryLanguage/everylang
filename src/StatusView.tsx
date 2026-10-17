@@ -258,6 +258,9 @@ function CurrentSessionSection({
                 <span className={`inline-block w-2.5 h-2.5 rounded-full ${elsewhere ? 'bg-amber-500' : 'bg-green-500'}`} />
                 <span>{writer.writer}</span>
                 <code className="text-xs text-gray-500 dark:text-gray-400">{writer.docId}</code>
+                {writer.standby && (
+                  <span className="text-xs text-gray-500 dark:text-gray-400">{s.statusWritersStandby}</span>
+                )}
                 {elsewhere && (
                   <span className="text-xs text-amber-700 dark:text-amber-400">
                     {s.statusWritersElsewhere}
