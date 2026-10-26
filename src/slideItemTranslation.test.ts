@@ -187,6 +187,22 @@ describe('translateItem', () => {
     ]);
   });
 
+  it("carries the model's note onto its slide's entry, and none onto library slides", async () => {
+    const result = await translateItem({
+      slides: ['Amen', 'Hallelujah'],
+      languages: ['French'],
+      lookup: makeLookup({ [slideTranslationKey('French', 'Amen')]: { text: 'Amen', provenance: 'human' } }),
+      translate: () =>
+        Promise.resolve({
+          French: [{ sourceText: 'Hallelujah', translatedText: 'Alléluia', note: 'Spelling?' }],
+        }),
+    });
+    expect(result.French).toEqual([
+      { text: 'Amen', provenance: 'human' },
+      { text: 'Alléluia', provenance: 'llm', note: 'Spelling?' },
+    ]);
+  });
+
   it('resolves empty slides to empty text without translating them', async () => {
     const translate = vi.fn(fakeTranslate);
     const result = await translateItem({

@@ -312,7 +312,11 @@ export function storeTranslations(
         if (!slide.trim() || !entry) return;
         const key = slideTranslationKey(language, slide);
         if (map.has(key)) return;
-        map.set(key, { text: entry.text ?? '', provenance: entry.provenance ?? 'llm' });
+        map.set(key, {
+          text: entry.text ?? '',
+          provenance: entry.provenance ?? 'llm',
+          ...(entry.note && { note: entry.note }),
+        });
       });
     }
   });

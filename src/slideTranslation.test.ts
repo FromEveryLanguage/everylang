@@ -5,6 +5,7 @@ import {
   slideTranslationKey,
   fallbackChain,
   resolveSlideTranslation,
+  countNotes,
   type SlideTranslationEntry,
   type SlideTranslationLookup,
 } from './slideTranslation';
@@ -101,5 +102,17 @@ describe('resolveSlideTranslation', () => {
 
   it('returns undefined when nothing is available', () => {
     expect(resolveSlideTranslation('Spanish', SLIDE, makeLookup({}))).toBeUndefined();
+  });
+});
+
+describe('countNotes', () => {
+  it('counts noted cells per slide per language, repeats included', () => {
+    const entries: Record<string, SlideTranslationEntry> = {
+      [slideTranslationKey('French', 'Chorus')]: { text: 'Refrain', provenance: 'llm', note: 'check' },
+      [slideTranslationKey('Spanish', 'Chorus')]: { text: 'Coro', provenance: 'llm' },
+      [slideTranslationKey('Spanish', 'Verse')]: { text: 'Verso', provenance: 'llm', note: 'check' },
+    };
+    const lookup: SlideTranslationLookup = (language, text) => entries[slideTranslationKey(language, text)];
+    expect(countNotes(['Chorus', 'Verse', 'Chorus'], ['French', 'Spanish'], lookup)).toBe(3);
   });
 });

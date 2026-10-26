@@ -901,10 +901,10 @@ app.post('/api/slideConversation/message', requireWriteKey('/api/slideConversati
     writeConversation(conversationsMap, conversation);
 
     // Flatten revised translations for the browser to apply.
-    const updatedTranslations: Array<{ language: string; sourceText: string; text: string }> = [];
+    const updatedTranslations: Array<{ language: string; sourceText: string; text: string; note?: string }> = [];
     for (const [language, blocks] of Object.entries(result.translations)) {
       for (const block of blocks) {
-        updatedTranslations.push({ language, sourceText: block.sourceText, text: block.translatedText });
+        updatedTranslations.push({ language, sourceText: block.sourceText, text: block.translatedText, note: block.note });
       }
     }
     return res.json({ ok: true, conversation, updatedTranslations });

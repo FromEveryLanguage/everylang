@@ -21,6 +21,12 @@ export interface SlideTranslationEntry {
   /** The translated text. */
   text: string;
   provenance: SlideProvenance;
+  /**
+   * The model's caveat for a reviewer: an ambiguity or judgement call in this text. It
+   * belongs to this text, so any rewrite (a human Save included) drops it. The model's
+   * original wording stays in the agent conversation either way.
+   */
+  note?: string;
 }
 
 /** A stored entry plus the language and normalized source text it was keyed by. */
@@ -138,4 +144,22 @@ export function resolveSlideTranslation(
     }
   }
   return undefined;
+}
+
+/**
+ * How many of an item's slide cells carry a model note — one per slide per language, so a
+ * repeated chorus counts at each occurrence, as the review grid shows it.
+ */
+export function countNotes(
+  slides: string[],
+  languages: readonly string[],
+  lookup: SlideTranslationLookup,
+): number {
+  let count = 0;
+  for (const slide of slides) {
+    for (const language of languages) {
+      if (lookup(language, slide)?.note) count++;
+    }
+  }
+  return count;
 }

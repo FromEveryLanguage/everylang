@@ -23,6 +23,7 @@ export type PerSlideTranslation = SlideTranslationEntry;
 export interface TranslatedSegment {
   sourceText: string;
   translatedText: string;
+  note?: string;
 }
 
 /** One target language for the model: which slides it must translate, plus context. */
@@ -88,13 +89,13 @@ export async function translateItem(params: {
   const needyTargets = targets.filter((target) =>
     target.isTranslationNeeded.some(Boolean),
   );
-  const translatedByLang: Record<string, Map<string, string>> = {};
+  const translatedByLang: Record<string, Map<string, TranslatedSegment>> = {};
   if (needyTargets.length > 0) {
     const result = await translate({ slides, targets: needyTargets });
     for (const [language, segments] of Object.entries(result)) {
-      const byText = new Map<string, string>();
+      const byText = new Map<string, TranslatedSegment>();
       for (const segment of segments) {
-        byText.set(normalizeSlideText(segment.sourceText), segment.translatedText);
+        byText.set(normalizeSlideText(segment.sourceText), segment);
       }
       translatedByLang[language] = byText;
     }
@@ -103,12 +104,17 @@ export async function translateItem(params: {
   const out: Record<string, PerSlideTranslation[]> = {};
   for (const language of languages) {
     const stored = storedByLang[language];
-    const byText = translatedByLang[language] ?? new Map<string, string>();
+    const byText = translatedByLang[language] ?? new Map<string, TranslatedSegment>();
     out[language] = slides.map((slide, i) => {
       const storedEntry = stored[i];
       if (storedEntry) return { text: storedEntry.text, provenance: storedEntry.provenance };
       if (slide.trim() === '') return { text: '', provenance: 'llm' };
-      return { text: byText.get(normalizeSlideText(slide)) ?? '', provenance: 'llm' };
+      const segment = byText.get(normalizeSlideText(slide));
+      return {
+        text: segment?.translatedText ?? '',
+        provenance: 'llm',
+        ...(segment?.note && { note: segment.note }),
+      };
     });
   }
   return out;

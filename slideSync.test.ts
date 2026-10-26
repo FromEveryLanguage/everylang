@@ -133,6 +133,16 @@ describe('storeTranslations', () => {
     expect(map.size).toBe(1);
   });
 
+  it("keeps the model's note with the text it was written for", () => {
+    const doc = new Y.Doc();
+    storeTranslations(doc, ['Hello'], { French: [{ text: 'Bonjour', provenance: 'llm', note: 'Salut?' }] });
+    expect(doc.getMap('slideTranslations').get(slideTranslationKey('French', 'Hello'))).toEqual({
+      text: 'Bonjour',
+      provenance: 'llm',
+      note: 'Salut?',
+    });
+  });
+
   it('never overwrites an existing entry', () => {
     // A reviewer's save and an agent follow-up's revision look alike here; a fresh draft
     // of the same source text must not undo either.

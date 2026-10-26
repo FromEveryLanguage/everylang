@@ -7,6 +7,7 @@ const baseProps = {
   languages: ['French'] as const,
   editable: true,
   busy: false,
+  notes: {},
 };
 
 describe('SlideReview', () => {
@@ -83,6 +84,21 @@ describe('SlideReview', () => {
     );
     expect(screen.getByText(/✓ Saved/)).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Save' })[0]).toBeDisabled();
+  });
+
+  it("shows the model's note on its cell only", () => {
+    render(
+      <SlideReview
+        {...baseProps}
+        drafts={{ French: ['Louez le Seigneur', 'À jamais'] }}
+        savedTexts={{ French: [null, null] }}
+        notes={{ French: [null, '"Forever" could also be "pour toujours"'] }}
+        onDraftChange={vi.fn()}
+        onSaveCell={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByText(/📝/)).toHaveLength(1);
+    expect(screen.getByText(/could also be "pour toujours"/)).toBeInTheDocument();
   });
 
   it('disables editing when not editable', () => {
