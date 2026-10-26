@@ -271,7 +271,7 @@ The app uses **Yjs** for real-time collaborative state management:
    value: the broadcaster declares it in the broadcast pane, which writes it to
    `liveAudioConfig` *and* onto their LiveKit token as the `speaks` attribute (the supervisor
    decides from room presence and can't wait on a doc sync; the doc copy is what viewers and
-   exports read later). Everything that used to hard-code `en` follows it — which code the
+   exports read later). Everything that depends on the spoken language follows it — which code the
    input transcript is filed under, what "Original" means in the listen picker, which language
    the always-on bridge translates into (`primaryTargetLanguage`), and which transcript an
    export marks as the source.
@@ -285,7 +285,7 @@ drives it). Translation is incremental: only blocks with no cache entry are sent
 
 1. **Cache lookup** (`buildBlockTranslationRequests`): empty blocks are
    dropped, and each block's *trimmed* content is looked up under `${language}:${content}`
-2. **Context provision**: up to 3 already-translated blocks before each untranslated run are marked
+2. **Context provision**: a few already-translated blocks before each untranslated run are marked
    as context and sent along, rendered back to markdown (`blockToMarkdownLine`) so the model sees
    the heading/bullet structure
 3. **Grouping** (`findContiguousBlocks`): contiguous runs become one `TranslationTodo` per request
@@ -321,7 +321,7 @@ The TTS system uses a two-layer architecture that separates "how to speak" from 
 **Backend** ([server.ts](server.ts))
 - ElevenLabs API integration
 - Audio file caching in `/audio-cache` (MD5 hash keys)
-- Concurrency limiting (2 concurrent requests by default)
+- Concurrency limiting (`TTS_MAX_CONCURRENT`)
 - Exponential backoff on rate limit errors (429)
 - In-flight request deduplication
 
@@ -660,8 +660,8 @@ yMap.get('field');
 
 UI strings are localized via [src/strings.ts](src/strings.ts) and [src/useLocale.ts](src/useLocale.ts):
 
-- **Supported locales**: `en`, `fr`, `ht`, `es` — defined in `SupportedLocale` and `SUPPORTED_LOCALES`
-- **Adding strings**: Add to `AppStrings` interface, then add values for all four locales in the `strings` record
+- **Supported locales**: defined in `SupportedLocale` and `SUPPORTED_LOCALES`
+- **Adding strings**: Add to `AppStrings` interface, then add a value for every locale in `SUPPORTED_LOCALES` in the `strings` record
 - **Using strings in components**: Call `useStrings()` directly inside the component — do not pass strings as props
 - **Locale resolution**: URL `?locale=` param takes priority, then `navigator.languages`, then defaults to `en`
 - **`LANGUAGE_BCP47`**: Maps translation language names (e.g. `'French'`) to BCP 47 codes — separate from UI locale
@@ -711,9 +711,6 @@ function BilingualBlockViewerContainer({ language }: ContainerProps) {
 
 - **Unit tests for pure logic**: Test utility functions and pure components in isolation
 - **Component tests with React Testing Library**: Test user interactions and state changes
-- **Keep tests simple**: Each test should verify one clear behavior
-- **Test edge cases**: Empty arrays, null values, boundary conditions
-- **Use descriptive test names**: "should play next line when current line finishes" not "test case 5"
 - **Mock external dependencies**: Use fake Audio API, mock fetch calls
 
 **Examples**:
