@@ -20,12 +20,12 @@ describe('api clients', () => {
   it('lookupLibrary posts texts and returns aligned entries', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ entries: [{ text: 'Bonjour', status: 'reviewed', provenance: 'human' }, null] }),
+      json: () => Promise.resolve({ entries: [{ text: 'Bonjour', provenance: 'human' }, null] }),
     });
     vi.stubGlobal('fetch', fetchMock);
 
     const entries = await lookupLibrary('French', ['Hello', 'Unknown']);
-    expect(entries).toEqual([{ text: 'Bonjour', status: 'reviewed', provenance: 'human' }, null]);
+    expect(entries).toEqual([{ text: 'Bonjour', provenance: 'human' }, null]);
 
     const [url, options] = fetchMock.mock.calls[0] as [string, { body: string }];
     expect(url).toBe('/api/slideLibrary/lookup');
@@ -33,13 +33,13 @@ describe('api clients', () => {
   });
 
   it('upsertLibraryEntry returns the saved record', async () => {
-    const record = { language: 'French', sourceText: 'Hello', text: 'Bonjour', status: 'reviewed', provenance: 'human' };
+    const record = { language: 'French', sourceText: 'Hello', text: 'Bonjour', provenance: 'human' };
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ record }) }));
     await expect(upsertLibraryEntry({ language: 'French', sourceText: 'Hello', text: 'Bonjour' })).resolves.toEqual(record);
   });
 
   it('translateItem returns the per-language translation map and conversation id', async () => {
-    const translations = { French: [{ text: 'Bonjour', status: 'auto', provenance: 'llm' }] };
+    const translations = { French: [{ text: 'Bonjour', provenance: 'llm' }] };
     const conversationId = 'item-1';
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ translations, conversationId }) }));
     await expect(translateItem(['Hello'], ['French'])).resolves.toEqual({ translations, conversationId });

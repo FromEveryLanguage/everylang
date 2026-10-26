@@ -6,7 +6,7 @@ export interface SlideReviewProps {
   languages: readonly string[];
   /** Current editable draft text, keyed by language then slide index. */
   drafts: Record<string, string[]>;
-  /** The translation currently saved as reviewed in the library (null if none). */
+  /** The translation currently saved in the library (null if none). */
   savedTexts: Record<string, (string | null)[]>;
   editable: boolean;
   /** True while a network action (suggest/save) is in flight. */
@@ -15,12 +15,12 @@ export interface SlideReviewProps {
   onSaveCell: (language: string, slideIndex: number) => void;
 }
 
-type CellState = 'reviewed' | 'unsaved' | 'empty';
+type CellState = 'saved' | 'unsaved' | 'empty';
 
 function cellState(draft: string, savedText: string | null): CellState {
   if (draft.trim() === '') return 'empty';
   if (savedText !== null && normalizeSlideText(savedText) === normalizeSlideText(draft)) {
-    return 'reviewed';
+    return 'saved';
   }
   return 'unsaved';
 }
@@ -80,9 +80,9 @@ export function SlideReview({
                       onChange={(e) => onDraftChange(language, slideIndex, e.target.value)}
                     />
                     <div className="mt-1 flex items-center gap-2">
-                      {state === 'reviewed' && (
+                      {state === 'saved' && (
                         <span className="text-xs font-medium text-green-700 dark:text-green-400">
-                          ✓ {s.statusReviewed}
+                          ✓ {s.statusSaved}
                         </span>
                       )}
                       {state === 'unsaved' && (

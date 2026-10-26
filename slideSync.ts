@@ -294,7 +294,11 @@ export function scanOrder(snap: FeedSnapshot): string[] {
   return i < 0 ? [...snap.order] : [...snap.order.slice(i), ...snap.order.slice(0, i)];
 }
 
-/** Write per-slide results into `slideTranslations`, leaving reviewed entries alone. */
+/**
+ * Write per-slide results into `slideTranslations`, filling gaps only. Keys are
+ * content-addressed, so an existing entry already translates this exact text — and it may
+ * be a reviewer's save or an agent follow-up's revision, which a fresh draft must not undo.
+ */
 export function storeTranslations(
   doc: Y.Doc,
   slides: string[],
@@ -307,12 +311,8 @@ export function storeTranslations(
         const entry = perSlide[i];
         if (!slide.trim() || !entry) return;
         const key = slideTranslationKey(language, slide);
-        if (map.get(key)?.status === 'reviewed') return;
-        map.set(key, {
-          text: entry.text ?? '',
-          status: entry.status ?? 'auto',
-          provenance: entry.provenance ?? 'llm',
-        });
+        if (map.has(key)) return;
+        map.set(key, { text: entry.text ?? '', provenance: entry.provenance ?? 'llm' });
       });
     }
   });

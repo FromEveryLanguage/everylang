@@ -19,8 +19,8 @@ The service reads Proclaim; the server does everything else
      [CURRENT_SESSION.md](CURRENT_SESSION.md))
    - Publishes `proclaimServiceOrder` / `proclaimPresentations` / `proclaimStatus` in one
      transaction through its own synced doc connection
-   - Translates the active item, then upcoming ones, into `slideTranslations` (never
-     overwriting a reviewed entry; each item's content once)
+   - Translates the active item, then upcoming ones, into `slideTranslations` (filling
+     missing keys only, never overwriting; each item's content once)
 
 3. **React Components** (`CurrentSlideViewer.tsx`)
    - **Container**: Reads from Yjs and extracts presentation data
