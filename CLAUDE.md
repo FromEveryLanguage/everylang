@@ -283,7 +283,7 @@ The unit of translation is a **block**, not a line of markdown — everything in
 `content`), and `fetchAndCacheTranslations` is the entry point ([useTranslationManager.ts](src/useTranslationManager.ts)
 drives it). Translation is incremental: only blocks with no cache entry are sent.
 
-1. **Cache lookup** (`getBlockTranslationTodos` / `buildBlockTranslationRequests`): empty blocks are
+1. **Cache lookup** (`buildBlockTranslationRequests`): empty blocks are
    dropped, and each block's *trimmed* content is looked up under `${language}:${content}`
 2. **Context provision**: up to 3 already-translated blocks before each untranslated run are marked
    as context and sent along, rendered back to markdown (`blockToMarkdownLine`) so the model sees

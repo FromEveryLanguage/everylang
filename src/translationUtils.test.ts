@@ -16,7 +16,6 @@ import {
   findContiguousBlocks,
   translationCacheKey,
   updateTranslationCache,
-  getBlockTranslationTodos,
   buildBlockTranslationRequests,
   fetchAndCacheTranslations,
   type TranslationBlock,
@@ -97,45 +96,6 @@ describe('translationCacheKey', () => {
   });
 });
 
-describe('getBlockTranslationTodos', () => {
-  it('drops empty and whitespace-only blocks', () => {
-    const blocks = [bullet('Real'), bullet(''), bullet('   \n  '), bullet('Also real')];
-    const { contents, isTranslationNeeded } = getBlockTranslationTodos('French', blocks, makeCache());
-    expect(contents).toEqual(['Real', 'Also real']);
-    expect(isTranslationNeeded).toEqual([true, true]);
-  });
-
-  it('reports content trimmed', () => {
-    const { contents } = getBlockTranslationTodos('French', [bullet('  padded  ')], makeCache());
-    expect(contents).toEqual(['padded']);
-  });
-
-  it('looks the cache up under the trimmed text', () => {
-    // An editor adding a trailing space must not invalidate an existing translation —
-    // otherwise idle typing re-bills the whole page.
-    const cache = cacheFor('French', ['Grace and peace']);
-    const { isTranslationNeeded } = getBlockTranslationTodos(
-      'French',
-      [bullet('  Grace and peace  ')],
-      cache,
-    );
-    expect(isTranslationNeeded).toEqual([false]);
-  });
-
-  it('marks only the blocks missing from the cache', () => {
-    const cache = cacheFor('French', ['One', 'Three']);
-    const blocks = [bullet('One'), bullet('Two'), bullet('Three')];
-    const { contents, isTranslationNeeded } = getBlockTranslationTodos('French', blocks, cache);
-    expect(contents).toEqual(['One', 'Two', 'Three']);
-    expect(isTranslationNeeded).toEqual([false, true, false]);
-  });
-
-  it('is language-specific', () => {
-    const cache = cacheFor('French', ['One']);
-    const { isTranslationNeeded } = getBlockTranslationTodos('Spanish', [bullet('One')], cache);
-    expect(isTranslationNeeded).toEqual([true]);
-  });
-});
 
 describe('buildBlockTranslationRequests', () => {
   it('asks for nothing when every block is already cached', () => {
@@ -248,6 +208,16 @@ describe('buildBlockTranslationRequests', () => {
   it('sends trimmed chunks', () => {
     const todos = buildBlockTranslationRequests('French', [bullet('  padded  ')], makeCache());
     expect(todos[0].chunks).toEqual(['padded']);
+  });
+
+  it('looks the cache up under the trimmed text', () => {
+    // Leading and trailing whitespace doesn't affect the translation.
+    const todos = buildBlockTranslationRequests(
+      'French',
+      [bullet('  Grace and peace  ')],
+      cacheFor('French', ['Grace and peace']),
+    );
+    expect(todos).toEqual([]);
   });
 });
 

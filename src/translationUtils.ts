@@ -86,30 +86,6 @@ export interface TranslationBlock {
 }
 
 /**
- * Get translation todos from blocks, checking cache for each.
- * Returns parallel arrays of content strings and whether translation is needed.
- */
-export function getBlockTranslationTodos(
-    language: string,
-    blocks: TranslationBlock[],
-    translationCache: TranslationCache
-): { contents: string[]; isTranslationNeeded: boolean[] } {
-    const contents: string[] = [];
-    const isTranslationNeeded: boolean[] = [];
-
-    for (const block of blocks) {
-        const trimmed = block.content.trim();
-        if (trimmed === '') continue;
-
-        contents.push(trimmed);
-        const cacheKey = translationCacheKey(language, trimmed);
-        isTranslationNeeded.push(!translationCache.has(cacheKey));
-    }
-
-    return { contents, isTranslationNeeded };
-}
-
-/**
  * Build translation todos with context from cached translations.
  * Groups contiguous untranslated blocks and adds context lines before each group.
  */
