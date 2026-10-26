@@ -214,7 +214,7 @@ export type TranslateItemFn = (params: {
  * finished syncing, by the only process that writes it — not by a client against a replica
  * of unknown freshness. Items are taken active-first, then upcoming, then past; one at a
  * time; and each content version once (keyed by `slidesHash`), so a failure doesn't spin and
- * an edit to the slides earns a fresh attempt. Reviewed entries are never overwritten.
+ * an edit to the slides earns a fresh attempt. Existing entries are never overwritten.
  */
 export class TranslateAhead {
   private attempted = new Map<string, string>();
