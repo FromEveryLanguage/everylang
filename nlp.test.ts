@@ -418,6 +418,48 @@ describe('revise_translation (targeted edits)', () => {
   });
 });
 
+describe('per-slide notes', () => {
+  const slides = ['Praise the Lord', 'Forever'];
+  const set = (segments: object[]) => ({
+    name: 'set_translations',
+    args: { languages: [{ language: 'French', segments }] },
+  });
+  const run = (rounds: Array<Array<{ name: string; args: object }>>) =>
+    runSlideTranslationAgent(fakeScriptedProvider(rounds), {
+      sourceSlides: slides,
+      messages: [{ role: 'user', parts: [{ text: 'prompt' }] }],
+      bibleLanguages: [],
+    });
+
+  it('attaches a note to the slide it was given with, trimmed, and to no other', async () => {
+    const result = await run([
+      [set([
+        { segmentId: 0, translation: 'Louez le Seigneur', note: '  Seigneur or Éternel?  ' },
+        { segmentId: 1, translation: 'Pour toujours', note: '   ' },
+      ])],
+    ]);
+    expect(result.translations.French.map((r) => r.note)).toEqual(['Seigneur or Éternel?', undefined]);
+  });
+
+  it('a rewrite without a note withdraws the one the slide had', async () => {
+    const result = await run([
+      [set([{ segmentId: 0, translation: 'Louez le Seigneur', note: 'Seigneur or Éternel?' }])],
+      [set([{ segmentId: 0, translation: "Louez l'Éternel" }])],
+    ]);
+    expect(result.translations.French[0]).not.toHaveProperty('note');
+  });
+
+  it('a revision withdraws the note, which stays in the conversation', async () => {
+    const result = await run([
+      [set([{ segmentId: 0, translation: 'Louez le Seigneur', note: 'Seigneur or Éternel?' }])],
+      [{ name: 'revise_translation', args: { language: 'French', segmentId: 0, find: 'le Seigneur', replace: "l'Éternel" } }],
+    ]);
+    expect(result.translations.French[0]).toMatchObject({ translatedText: "Louez l'Éternel" });
+    expect(result.translations.French[0]).not.toHaveProperty('note');
+    expect(JSON.stringify(result.messages)).toContain('Seigneur or Éternel?');
+  });
+});
+
 describe('token usage accounting', () => {
   it('sums usageMetadata across rounds, tolerating missing fields', () => {
     let usage = emptyUsage();

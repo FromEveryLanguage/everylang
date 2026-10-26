@@ -30,6 +30,8 @@ export type TranslationTodo = {
 export type TranslationBlockResult = {
     sourceText: string;
     translatedText: string;
+    /** The model's caveat for the reviewer on this slide, if it raised one (slide agent only). */
+    note?: string;
 }
 
 /**
@@ -344,8 +346,11 @@ const SET_TRANSLATIONS_TOOL: FunctionDeclaration = {
                                     note: {
                                         type: Type.STRING,
                                         description:
-                                            'Optional caveat for the reviewer. Omit unless there is ' +
-                                            'a genuine ambiguity or judgement call worth flagging.',
+                                            'Optional caveat for the reviewer, shown beside this slide on ' +
+                                            'the review screen and counted on its item. Omit unless there ' +
+                                            'is a genuine ambiguity or judgement call worth flagging. It ' +
+                                            'belongs to this text: rewriting or revising the slide ' +
+                                            'withdraws it unless you restate it here.',
                                     },
                                 },
                             },
@@ -425,11 +430,19 @@ const workingFor = (working: WorkingTranslations, language: string): Map<number,
     return perSlide;
 };
 
+/**
+ * The notes on the working copy, keyed the same way. A note belongs to the text it was
+ * written with, so every write to a slide replaces it: `set_translations` with its own note
+ * (or none), `revise_translation` with none.
+ */
+type WorkingNotes = WorkingTranslations;
+
 /** Apply a `set_translations` call to the working copy; returns the ids it touched. */
 const applySetTranslations = (
     args: Record<string, unknown> | undefined,
     sourceSlides: string[],
     working: WorkingTranslations,
+    notes: WorkingNotes,
     changed: Map<string, Set<number>>,
 ): void => {
     const languageResults = ((args?.languages as unknown[]) ?? []) as Array<{
@@ -443,6 +456,9 @@ const applySetTranslations = (
             const segmentId = segment.segmentId;
             if (!(segmentId >= 0 && segmentId < sourceSlides.length)) continue;
             workingFor(working, language).set(segmentId, unescapeLiteralEscapes(segment.translation ?? ''));
+            const note = segment.note?.trim();
+            if (note) workingFor(notes, language).set(segmentId, note);
+            else notes.get(language)?.delete(segmentId);
             if (!changed.has(language)) changed.set(language, new Set());
             changed.get(language)?.add(segmentId);
         }
@@ -460,6 +476,7 @@ const applyReviseTranslation = (
     args: Record<string, unknown> | undefined,
     sourceSlides: string[],
     working: WorkingTranslations,
+    notes: WorkingNotes,
     changed: Map<string, Set<number>>,
 ): Record<string, unknown> => {
     const language = typeof args?.language === 'string' ? args.language : '';
@@ -498,6 +515,7 @@ const applyReviseTranslation = (
 
     const updated = current.slice(0, first) + replace + current.slice(first + find.length);
     workingFor(working, language).set(segmentId, updated);
+    notes.get(language)?.delete(segmentId);
     if (!changed.has(language)) changed.set(language, new Set());
     changed.get(language)?.add(segmentId);
     return { ok: true, language, segmentId, text: updated };
@@ -506,17 +524,20 @@ const applyReviseTranslation = (
 /** Collect the slides the run changed, per language, from the working copy. */
 const collectChanged = (
     working: WorkingTranslations,
+    notes: WorkingNotes,
     changed: Map<string, Set<number>>,
     sourceSlides: string[],
 ): Record<string, TranslationBlockResult[]> => {
     const out: Record<string, TranslationBlockResult[]> = {};
     for (const [language, ids] of changed) {
         const perSlide = working.get(language);
+        const notesFor = notes.get(language);
         out[language] = [...ids]
             .sort((a, b) => a - b)
             .map((segmentId) => ({
                 sourceText: sourceSlides[segmentId],
                 translatedText: perSlide?.get(segmentId) ?? '',
+                ...(notesFor?.has(segmentId) && { note: notesFor.get(segmentId) }),
                 language,
             }));
     }
@@ -582,6 +603,9 @@ export const runSlideTranslationAgent = async (
     // Seeded with what already exists, so an edit-only run has something to edit. `changed`
     // stays empty until the model actually writes, so seeds are never reported as updates.
     const working: WorkingTranslations = new Map();
+    // Notes are not seeded: a slide this run doesn't write keeps whatever note it has where
+    // it is stored, and a slide it does write gets a fresh one (or none).
+    const notes: WorkingNotes = new Map();
     const changed = new Map<string, Set<number>>();
     for (const [language, perSlide] of Object.entries(currentTranslations ?? {})) {
         perSlide.forEach((text, segmentId) => {
@@ -621,6 +645,7 @@ export const runSlideTranslationAgent = async (
                     call.args as Record<string, unknown> | undefined,
                     sourceSlides,
                     working,
+                    notes,
                     changed,
                 );
                 setTranslationsCalled = true;
@@ -635,6 +660,7 @@ export const runSlideTranslationAgent = async (
                             call.args as Record<string, unknown> | undefined,
                             sourceSlides,
                             working,
+                            notes,
                             changed,
                         ),
                     },
@@ -672,7 +698,7 @@ export const runSlideTranslationAgent = async (
     }
 
     return {
-        translations: collectChanged(working, changed, sourceSlides),
+        translations: collectChanged(working, notes, changed, sourceSlides),
         messages,
         setTranslationsCalled,
         usage,

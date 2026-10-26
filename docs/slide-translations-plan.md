@@ -405,3 +405,13 @@ fix mid-service, which is noise they can't act on. What replaced it:
   only**. Keys are content-addressed, so an existing entry already translates this exact
   text, and it may be a reviewer's save or an agent follow-up's revision that a fresh
   draft must not undo. "Protect reviewed" was a special case of that rule.
+
+**Notes, surfaced (post-build).** `set_translations` always let the model attach a
+per-segment `note`, and we dropped it. It now rides on the entry, `{ text, provenance,
+note? }`, because a note is a caveat about *that text*: whatever replaces the text replaces
+the note. A rewrite through `set_translations` brings its own note or none, a
+`revise_translation` drops it, and a reviewer's Save drops it — the human has dealt with it.
+The model's original wording stays in the stored conversation either way. Notes are not
+seeded into a follow-up run: a slide the run doesn't write keeps its note where it is stored.
+The library never stores one. The review screen shows a note above its cell and counts an
+item's notes in the picker.

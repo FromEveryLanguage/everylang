@@ -54,6 +54,8 @@ export interface ConversationTranslationUpdate {
   language: string;
   sourceText: string;
   text: string;
+  /** Absent when the revised text carries no caveat — including any it had before. */
+  note?: string;
 }
 
 export interface ConversationMessageResult {

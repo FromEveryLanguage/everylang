@@ -8,6 +8,8 @@ export interface SlideReviewProps {
   drafts: Record<string, string[]>;
   /** The translation currently saved in the library (null if none). */
   savedTexts: Record<string, (string | null)[]>;
+  /** The model's caveat on each draft (null if none), keyed like `drafts`. */
+  notes: Record<string, (string | null)[]>;
   editable: boolean;
   /** True while a network action (suggest/save) is in flight. */
   busy: boolean;
@@ -27,15 +29,16 @@ function cellState(draft: string, savedText: string | null): CellState {
 
 /**
  * Pure grid for reviewing/editing slide translations: one row per slide, one column
- * per target language, plus the source text. Each cell shows the draft translation,
- * a saved/unsaved status chip, and a per-cell Save button. All data and persistence
- * are owned by the container.
+ * per target language, plus the source text. Each cell shows the model's note (if any),
+ * the draft translation, a saved/unsaved status chip, and a per-cell Save button. All data
+ * and persistence are owned by the container.
  */
 export function SlideReview({
   slides,
   languages,
   drafts,
   savedTexts,
+  notes,
   editable,
   busy,
   onDraftChange,
@@ -70,8 +73,12 @@ export function SlideReview({
                 const draft = drafts[language]?.[slideIndex] ?? '';
                 const savedText = savedTexts[language]?.[slideIndex] ?? null;
                 const state = cellState(draft, savedText);
+                const note = notes[language]?.[slideIndex];
                 return (
                   <td key={language} className="p-2">
+                    {note && (
+                      <p className="mb-1 text-xs text-amber-800 dark:text-amber-300">📝 {note}</p>
+                    )}
                     <textarea
                       aria-label={`${language} slide ${slideIndex + 1}`}
                       className="w-full min-h-[3rem] rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 p-1 text-sm resize-y disabled:opacity-60"

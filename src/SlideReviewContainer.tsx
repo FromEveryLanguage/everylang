@@ -4,7 +4,7 @@ import { useAtomValue } from 'jotai';
 
 import { isEditorAtom, languages } from './configAtoms';
 import { useStrings } from './useLocale';
-import { normalizeSlideText, slideTranslationKey } from './slideTranslation';
+import { countNotes, normalizeSlideText, slideTranslationKey, type SlideTranslationEntry } from './slideTranslation';
 import { SlideReview } from './SlideReview';
 import { SlideConversationPanel } from './SlideConversationPanel';
 import { SlideReferenceDiff } from './SlideReferenceDiff';
@@ -16,6 +16,7 @@ import {
   translateItem,
   sendConversationMessage,
   postConversationNote,
+  type ConversationTranslationUpdate,
   type SlideConversation,
 } from './slideTranslationApi';
 
@@ -54,6 +55,9 @@ export function SlideReviewContainer() {
   const [slides, setSlides] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<StringArrays>(() => emptyArrays(0));
   const [savedTexts, setSavedTexts] = useState<NullableStringArrays>(() => emptyNullableArrays(0));
+  // The model's caveat on each draft. It travels with the draft text: replaced whenever the
+  // draft is replaced from a model result, and cleared by Save (the saved entry has none).
+  const [notes, setNotes] = useState<NullableStringArrays>(() => emptyNullableArrays(0));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The currently selected service item, the conversation key the server is using for it, and
@@ -93,18 +97,24 @@ export function SlideReviewContainer() {
   const loadSavedFor = useCallback(async (slideList: string[]) => {
     const nextSaved = await lookupSaved(slideList);
     const nextDrafts = emptyArrays(slideList.length);
+    const nextNotes = emptyNullableArrays(slideList.length);
     for (const language of languages) {
-      nextDrafts[language] = slideList.map((slide, i) => {
+      slideList.forEach((slide, i) => {
         const saved = nextSaved[language][i];
-        if (saved) return saved;
+        if (saved) {
+          nextDrafts[language][i] = saved;
+          return;
+        }
         const cached = translationsMap.get(slideTranslationKey(language, slide)) as
-          | { text?: string }
+          | SlideTranslationEntry
           | undefined;
-        return cached?.text ?? '';
+        nextDrafts[language][i] = cached?.text ?? '';
+        nextNotes[language][i] = cached?.note ?? null;
       });
     }
     setSavedTexts(nextSaved);
     setDrafts(nextDrafts);
+    setNotes(nextNotes);
   }, [translationsMap, lookupSaved]);
 
   // Slides always come from the service item itself, read fresh at the moment they're needed,
@@ -126,6 +136,7 @@ export function SlideReviewContainer() {
       setSlides(slideList);
       setDrafts(emptyArrays(slideList.length));
       setSavedTexts(emptyNullableArrays(slideList.length));
+      setNotes(emptyNullableArrays(slideList.length));
       if (slideList.length === 0) return;
       setBusy(true);
       try {
@@ -193,11 +204,14 @@ export function SlideReviewContainer() {
         selectedItemId,
       );
       const nextDrafts = emptyArrays(slideList.length);
+      const nextNotes = emptyNullableArrays(slideList.length);
       for (const language of languages) {
         const perSlide = translations[language] ?? [];
         nextDrafts[language] = slideList.map((_, i) => perSlide[i]?.text ?? '');
+        nextNotes[language] = slideList.map((_, i) => perSlide[i]?.note ?? null);
       }
       setDrafts(nextDrafts);
+      setNotes(nextNotes);
       // Ask the library rather than infer "saved" from the draft response.
       setSavedTexts(await lookupSaved(slideList));
       // The server stored the agent conversation under this key; we read it live from Yjs.
@@ -213,23 +227,32 @@ export function SlideReviewContainer() {
   // slideTranslations map (content-addressed, so they land on the matching slides) and reflect
   // them in the editable drafts.
   const applyUpdates = useCallback(
-    (updates: Array<{ language: string; sourceText: string; text: string }>) => {
+    (updates: ConversationTranslationUpdate[]) => {
       if (updates.length === 0) return;
       for (const update of updates) {
-        translationsMap.set(slideTranslationKey(update.language, update.sourceText), {
-          text: update.text,
-          provenance: 'llm',
-        });
+        const entry: SlideTranslationEntry = { text: update.text, provenance: 'llm' };
+        if (update.note) entry.note = update.note;
+        translationsMap.set(slideTranslationKey(update.language, update.sourceText), entry);
       }
+      const indexOf = (sourceText: string) =>
+        slides.findIndex((slide) => normalizeSlideText(slide) === normalizeSlideText(sourceText));
       setDrafts((prev) => {
         const next: StringArrays = { ...prev };
         for (const update of updates) {
-          const idx = slides.findIndex(
-            (slide) => normalizeSlideText(slide) === normalizeSlideText(update.sourceText),
-          );
+          const idx = indexOf(update.sourceText);
           if (idx < 0) continue;
           next[update.language] = [...(next[update.language] ?? [])];
           next[update.language][idx] = update.text;
+        }
+        return next;
+      });
+      setNotes((prev) => {
+        const next: NullableStringArrays = { ...prev };
+        for (const update of updates) {
+          const idx = indexOf(update.sourceText);
+          if (idx < 0) continue;
+          next[update.language] = [...(next[update.language] ?? [])];
+          next[update.language][idx] = update.note ?? null;
         }
         return next;
       });
@@ -277,6 +300,11 @@ export function SlideReviewContainer() {
         setSavedTexts((prev) => {
           const next = { ...prev, [language]: [...(prev[language] ?? [])] };
           next[language][slideIndex] = record.text;
+          return next;
+        });
+        setNotes((prev) => {
+          const next = { ...prev, [language]: [...(prev[language] ?? [])] };
+          next[language][slideIndex] = null;
           return next;
         });
         // Surface the manual edit back to the agent as a note, so a later follow-up has the
@@ -341,11 +369,19 @@ export function SlideReviewContainer() {
               }}
             >
               <option value="" />
-              {serviceOrder.map((id) => (
-                <option key={id} value={id}>
-                  {(presentationsMap.get(id) as { title?: string } | undefined)?.title ?? id}
-                </option>
-              ))}
+              {serviceOrder.map((id) => {
+                const item = presentationsMap.get(id) as { title?: string; slides?: string[] } | undefined;
+                // Notes as the doc holds them, so the picker says which items want a look.
+                const noteCount = countNotes(item?.slides ?? [], languages, (language, text) =>
+                  translationsMap.get(slideTranslationKey(language, text)) as SlideTranslationEntry | undefined,
+                );
+                return (
+                  <option key={id} value={id}>
+                    {item?.title ?? id}
+                    {noteCount > 0 ? ` · 📝 ${noteCount}` : ''}
+                  </option>
+                );
+              })}
             </select>
           </label>
         )}
@@ -378,6 +414,7 @@ export function SlideReviewContainer() {
         languages={languages}
         drafts={drafts}
         savedTexts={savedTexts}
+        notes={notes}
         editable={isEditor}
         busy={busy}
         onDraftChange={handleDraftChange}
