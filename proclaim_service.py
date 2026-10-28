@@ -20,6 +20,7 @@ import signal
 import socket
 import subprocess
 import time
+import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -290,6 +291,6 @@ async def main():
 
 if __name__ == '__main__':
     try:
-        nyio.run(main)
+        anyio.run(main)
     except KeyboardInterrupt:
         logger.info("Received Ctrl+C, shutting down...")
