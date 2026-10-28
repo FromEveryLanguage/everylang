@@ -209,6 +209,11 @@ def build_pusher(
 
 
 async def signal_handler(cancel_scope: anyio.CancelScope):
+    # asyncio on Windows has no add_signal_handler, so open_signal_receiver raises
+    # NotImplementedError and takes the whole task group down with it. There, Ctrl+C
+    # arrives as KeyboardInterrupt instead, which the __main__ block turns into a clean exit.
+    if sys.platform == 'win32':
+      return
     with anyio.open_signal_receiver(signal.SIGINT, signal.SIGTERM) as signals:
         async for signum in signals:
             signal_name = signal.strsignal(signum) or str(signum)
@@ -284,4 +289,7 @@ async def main():
 
 
 if __name__ == '__main__':
-    anyio.run(main)
+    try:
+        anyio.run(main)
+    except KeyboardInterrupt:
+        logger.info("Received Ctrl+C, shutting down...")
