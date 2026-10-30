@@ -36,7 +36,7 @@ beforeEach(async () => {
   docs = new Map();
   translate = vi.fn<TranslateItemFn>(async ({ slides }) =>
     Object.fromEntries(
-      LANGS.map((l) => [l, slides.map((s) => ({ text: `${l}:${s}`, status: 'auto' as const, provenance: 'llm' as const }))]),
+      LANGS.map((l) => [l, slides.map((s) => ({ text: `${l}:${s}`, provenance: 'llm' as const }))]),
     ),
   );
 });

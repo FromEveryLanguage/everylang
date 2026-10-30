@@ -214,7 +214,7 @@ export type TranslateItemFn = (params: {
  * finished syncing, by the only process that writes it — not by a client against a replica
  * of unknown freshness. Items are taken active-first, then upcoming, then past; one at a
  * time; and each content version once (keyed by `slidesHash`), so a failure doesn't spin and
- * an edit to the slides earns a fresh attempt. Reviewed entries are never overwritten.
+ * an edit to the slides earns a fresh attempt. Existing entries are never overwritten.
  */
 export class TranslateAhead {
   private attempted = new Map<string, string>();
@@ -294,7 +294,11 @@ export function scanOrder(snap: FeedSnapshot): string[] {
   return i < 0 ? [...snap.order] : [...snap.order.slice(i), ...snap.order.slice(0, i)];
 }
 
-/** Write per-slide results into `slideTranslations`, leaving reviewed entries alone. */
+/**
+ * Write per-slide results into `slideTranslations`, filling gaps only. Keys are
+ * content-addressed, so an existing entry already translates this exact text — and it may
+ * be a reviewer's save or an agent follow-up's revision, which a fresh draft must not undo.
+ */
 export function storeTranslations(
   doc: Y.Doc,
   slides: string[],
@@ -307,12 +311,8 @@ export function storeTranslations(
         const entry = perSlide[i];
         if (!slide.trim() || !entry) return;
         const key = slideTranslationKey(language, slide);
-        if (map.get(key)?.status === 'reviewed') return;
-        map.set(key, {
-          text: entry.text ?? '',
-          status: entry.status ?? 'auto',
-          provenance: entry.provenance ?? 'llm',
-        });
+        if (map.has(key)) return;
+        map.set(key, { text: entry.text ?? '', provenance: entry.provenance ?? 'llm' });
       });
     }
   });

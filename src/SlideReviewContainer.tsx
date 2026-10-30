@@ -38,7 +38,7 @@ function emptyNullableArrays(length: number): NullableStringArrays {
  * The screen is selection-driven: pick a service item (or load the on-air one) and its
  * slides, the agent's drafts, and the agent's conversation all follow. The Proclaim service
  * translates on-air items on its own, so the reviewer's job is to *correct*, not to
- * originate — "Save" promotes a draft to a reviewed library entry, and "Re-translate" is the
+ * originate — "Save" stores a draft in the library, and "Re-translate" is the
  * fallback for an item the service never got to (or got wrong enough to restart).
  */
 export function SlideReviewContainer() {
@@ -75,28 +75,37 @@ export function SlideReviewContainer() {
       conversation.slidesHash !== livePresentation.slidesHash,
   );
 
-  // Seed the grid for these slides: `savedTexts` marks reviewed library entries; `drafts`
-  // pre-fill from the reviewed entry, else from the live slideTranslations cache (so an item
-  // the work-ahead worker auto-translated shows its text immediately, with no model call).
-  const loadSavedFor = useCallback(async (slideList: string[]) => {
+  // What the library holds for these slides — the "Saved" chip compares each draft to it.
+  const lookupSaved = useCallback(async (slideList: string[]) => {
     const nextSaved = emptyNullableArrays(slideList.length);
-    const nextDrafts = emptyArrays(slideList.length);
     await Promise.all(
       languages.map(async (language) => {
         const entries = await lookupLibrary(language, slideList);
         nextSaved[language] = entries.map((entry) => entry?.text ?? null);
-        nextDrafts[language] = entries.map((entry, i) => {
-          if (entry?.text) return entry.text;
-          const cached = translationsMap.get(slideTranslationKey(language, slideList[i])) as
-            | { text?: string }
-            | undefined;
-          return cached?.text ?? '';
-        });
       }),
     );
+    return nextSaved;
+  }, []);
+
+  // Seed the grid for these slides: `drafts` pre-fill from the library entry, else from the
+  // live slideTranslations cache (so an item the server translated ahead shows its text
+  // immediately, with no model call).
+  const loadSavedFor = useCallback(async (slideList: string[]) => {
+    const nextSaved = await lookupSaved(slideList);
+    const nextDrafts = emptyArrays(slideList.length);
+    for (const language of languages) {
+      nextDrafts[language] = slideList.map((slide, i) => {
+        const saved = nextSaved[language][i];
+        if (saved) return saved;
+        const cached = translationsMap.get(slideTranslationKey(language, slide)) as
+          | { text?: string }
+          | undefined;
+        return cached?.text ?? '';
+      });
+    }
     setSavedTexts(nextSaved);
     setDrafts(nextDrafts);
-  }, [translationsMap]);
+  }, [translationsMap, lookupSaved]);
 
   // Slides always come from the service item itself, read fresh at the moment they're needed,
   // so a Proclaim edit between selecting an item and re-translating it can't leave us working
@@ -184,17 +193,13 @@ export function SlideReviewContainer() {
         selectedItemId,
       );
       const nextDrafts = emptyArrays(slideList.length);
-      const nextSaved = emptyNullableArrays(slideList.length);
       for (const language of languages) {
         const perSlide = translations[language] ?? [];
         nextDrafts[language] = slideList.map((_, i) => perSlide[i]?.text ?? '');
-        // Reviewed suggestions already exist in the library; reflect that as saved.
-        nextSaved[language] = slideList.map((_, i) =>
-          perSlide[i]?.status === 'reviewed' ? perSlide[i].text : null,
-        );
       }
       setDrafts(nextDrafts);
-      setSavedTexts(nextSaved);
+      // Ask the library rather than infer "saved" from the draft response.
+      setSavedTexts(await lookupSaved(slideList));
       // The server stored the agent conversation under this key; we read it live from Yjs.
       setConversationId(newId);
     } catch (err) {
@@ -202,7 +207,7 @@ export function SlideReviewContainer() {
     } finally {
       setBusy(false);
     }
-  }, [selectedItemId, readItemSlides, presentationsMap, s.waitingForProclaim]);
+  }, [selectedItemId, readItemSlides, presentationsMap, lookupSaved, s.waitingForProclaim]);
 
   // Apply translations the agent revised during a follow-up: write them live to the
   // slideTranslations map (content-addressed, so they land on the matching slides) and reflect
@@ -213,8 +218,7 @@ export function SlideReviewContainer() {
       for (const update of updates) {
         translationsMap.set(slideTranslationKey(update.language, update.sourceText), {
           text: update.text,
-          status: 'auto',
-          provenance: 'llm-agent',
+          provenance: 'llm',
         });
       }
       setDrafts((prev) => {
@@ -262,15 +266,13 @@ export function SlideReviewContainer() {
       setError(null);
       try {
         const record = await upsertLibraryEntry({ language, sourceText, text });
-        // Push the reviewed entry into the live (per-day) slideTranslations map so the
+        // Push the saved entry into the live (per-day) slideTranslations map so the
         // viewer updates immediately. Keys are content-addressed, so this lands on any
-        // on-screen slide with matching text. Otherwise the only writer is the Proclaim
-        // service, which won't re-push an item whose slide content hasn't changed.
+        // on-screen slide with matching text. Nothing else would: the server's translate-ahead
+        // only fills keys that are missing.
         translationsMap.set(slideTranslationKey(language, sourceText), {
           text: record.text,
-          status: record.status,
           provenance: record.provenance,
-          reviewedAt: record.reviewedAt,
         });
         setSavedTexts((prev) => {
           const next = { ...prev, [language]: [...(prev[language] ?? [])] };

@@ -24,7 +24,7 @@ const fakeTranslate: MultiLangTranslateFn = ({ slides, targets }) =>
   );
 
 describe('translateItem', () => {
-  it('translates all slides for every language when nothing is reviewed', async () => {
+  it('translates all slides for every language when the library is empty', async () => {
     const result = await translateItem({
       slides: ['Praise the Lord', 'Forever and ever'],
       languages: ['French', 'Haitian Creole'],
@@ -33,24 +33,21 @@ describe('translateItem', () => {
     });
 
     expect(result.French).toEqual([
-      { text: '[French] Praise the Lord', status: 'auto', provenance: 'llm' },
-      { text: '[French] Forever and ever', status: 'auto', provenance: 'llm' },
+      { text: '[French] Praise the Lord', provenance: 'llm' },
+      { text: '[French] Forever and ever', provenance: 'llm' },
     ]);
     expect(result['Haitian Creole'][0]).toEqual({
       text: '[Haitian Creole] Praise the Lord',
-      status: 'auto',
       provenance: 'llm',
     });
   });
 
-  it('returns reviewed slides as reviewed and only sends the misses to the model', async () => {
+  it('returns library slides as-is and only sends the misses to the model', async () => {
     const translate = vi.fn(fakeTranslate);
     const lookup = makeLookup({
       [slideTranslationKey('French', 'Praise the Lord')]: {
         text: 'Louez le Seigneur',
-        status: 'reviewed',
         provenance: 'human',
-        reviewedAt: 1,
       },
     });
 
@@ -63,29 +60,25 @@ describe('translateItem', () => {
 
     expect(result.French[0]).toEqual({
       text: 'Louez le Seigneur',
-      status: 'reviewed',
       provenance: 'human',
     });
     expect(result.French[1]).toEqual({
       text: '[French] Forever and ever',
-      status: 'auto',
       provenance: 'llm',
     });
 
-    // Only the un-reviewed slide is flagged, and the reviewed text feeds context.
+    // Only the missing slide is flagged, and the library text feeds context.
     const target = translate.mock.calls[0][0].targets.find((t) => t.language === 'French');
     expect(target?.isTranslationNeeded).toEqual([false, true]);
     expect(target?.context).toContain('Louez le Seigneur');
   });
 
-  it('does not call the model when every slide is reviewed in every language', async () => {
+  it('does not call the model when every slide is in the library in every language', async () => {
     const translate = vi.fn(fakeTranslate);
     const lookup = makeLookup({
       [slideTranslationKey('French', 'Amen')]: {
         text: 'Amen',
-        status: 'reviewed',
         provenance: 'human',
-        reviewedAt: 1,
       },
     });
 
@@ -97,7 +90,7 @@ describe('translateItem', () => {
     });
 
     expect(translate).not.toHaveBeenCalled();
-    expect(result.French[0].status).toBe('reviewed');
+    expect(result.French[0].provenance).toBe('human');
   });
 
   it('only includes languages that still need translation in the model call', async () => {
@@ -105,9 +98,7 @@ describe('translateItem', () => {
     const lookup = makeLookup({
       [slideTranslationKey('French', 'Amen')]: {
         text: 'Amen',
-        status: 'reviewed',
         provenance: 'human',
-        reviewedAt: 1,
       },
     });
 
@@ -145,14 +136,12 @@ describe('translateItem', () => {
     ]);
   });
 
-  it('never sends duplicates of an already-reviewed slide to the model', async () => {
+  it('never sends duplicates of a slide already in the library to the model', async () => {
     const translate = vi.fn(fakeTranslate);
     const lookup = makeLookup({
       [slideTranslationKey('French', 'Chorus')]: {
         text: 'Refrain',
-        status: 'reviewed',
         provenance: 'human',
-        reviewedAt: 1,
       },
     });
 
@@ -166,19 +155,15 @@ describe('translateItem', () => {
     const target = translate.mock.calls[0][0].targets[0];
     expect(target.isTranslationNeeded).toEqual([false, true, false]);
     expect(result.French.map((r) => r.text)).toEqual(['Refrain', '[French] V1', 'Refrain']);
-    expect(result.French[0].status).toBe('reviewed');
-    expect(result.French[2].status).toBe('reviewed');
   });
 
   it('dedups duplicates per language independently', async () => {
     const translate = vi.fn(fakeTranslate);
     const lookup = makeLookup({
-      // Reviewed in French only; Haitian Creole still needs it.
+      // In the French library only; Haitian Creole still needs it.
       [slideTranslationKey('French', 'Chorus')]: {
         text: 'Refrain',
-        status: 'reviewed',
         provenance: 'human',
-        reviewedAt: 1,
       },
     });
 
@@ -190,7 +175,7 @@ describe('translateItem', () => {
     });
 
     const targets = translate.mock.calls[0][0].targets;
-    // French is fully reviewed, so it drops out of the model call entirely.
+    // French is fully covered, so it drops out of the model call entirely.
     expect(targets.map((t) => t.language)).toEqual(['Haitian Creole']);
     const htTarget = targets[0];
     expect(htTarget.isTranslationNeeded).toEqual([true, false]);
@@ -202,7 +187,7 @@ describe('translateItem', () => {
     ]);
   });
 
-  it('resolves empty slides to empty auto text without translating them', async () => {
+  it('resolves empty slides to empty text without translating them', async () => {
     const translate = vi.fn(fakeTranslate);
     const result = await translateItem({
       slides: ['', 'Hallelujah'],
@@ -211,7 +196,7 @@ describe('translateItem', () => {
       translate,
     });
 
-    expect(result.French[0]).toEqual({ text: '', status: 'auto', provenance: 'llm' });
+    expect(result.French[0]).toEqual({ text: '', provenance: 'llm' });
     expect(result.French[1].text).toBe('[French] Hallelujah');
     const target = translate.mock.calls[0][0].targets[0];
     expect(target.isTranslationNeeded).toEqual([false, true]);

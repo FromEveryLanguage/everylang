@@ -141,7 +141,7 @@ const AUDIO_CACHE_DIR = 'audio-cache';
 // Ensure audio cache directory exists
 await fs.mkdir(AUDIO_CACHE_DIR, { recursive: true });
 
-// Persistent reviewed-translation library. Defaults into the audio-cache dir so it
+// Persistent slide-translation library. Defaults into the audio-cache dir so it
 // rides along with the existing Docker volume; override with SLIDE_LIBRARY_PATH.
 const SLIDE_LIBRARY_PATH =
   process.env.SLIDE_LIBRARY_PATH || path.join(AUDIO_CACHE_DIR, 'slide-library.json');
@@ -691,15 +691,15 @@ app.post('/api/requestTranslatedBlocks', requireWriteKey('/api/requestTranslated
   });
 });
 
-// --- Slide translation library (persistent reviewed tier) ---
+// --- Slide translation library (what reviewers saved; persists across services) ---
 
-// List all reviewed entries.
+// List all saved entries.
 app.get('/api/slideLibrary', (_req, res) => {
   return res.json({ ok: true, entries: slideLibrary.list() });
 });
 
-// Batch lookup of reviewed entries for one language. Body: { language, texts: string[] }.
-// Returns entries[] aligned with texts (null where there is no reviewed entry).
+// Batch lookup of saved entries for one language. Body: { language, texts: string[] }.
+// Returns entries[] aligned with texts (null where there is no saved entry).
 app.post('/api/slideLibrary/lookup', (req, res) => {
   const language = req.body?.language as string | undefined;
   const texts = (req.body?.texts as string[]) ?? [];
@@ -710,7 +710,7 @@ app.post('/api/slideLibrary/lookup', (req, res) => {
   return res.json({ ok: true, entries });
 });
 
-// Upsert a reviewed translation. Body: { language, sourceText, text, provenance? }.
+// Upsert a saved translation. Body: { language, sourceText, text, provenance? }.
 // Writes to the persistent library on disk, so unlike the lookups above it needs a key.
 app.post('/api/slideLibrary', requireWriteKey('/api/slideLibrary'), async (req, res) => {
   const { language, sourceText, text, provenance } = req.body ?? {};
@@ -722,7 +722,7 @@ app.post('/api/slideLibrary', requireWriteKey('/api/slideLibrary'), async (req, 
 });
 
 /**
- * Translate a whole service item, reusing reviewed library entries and filling the rest with
+ * Translate a whole service item, reusing saved library entries and filling the rest with
  * one strong-model call for all languages at once, and record the agent conversation in the
  * session doc for the review screen. Shared by `/api/translateItem` (the review screen's
  * "draft") and the server's own translate-ahead worker for the Proclaim feed.
@@ -789,7 +789,7 @@ async function draftItem({
   });
 
   // Persist the conversation so the review screen can show the agent's reasoning/tool calls
-  // and post follow-ups. When no model call was needed (every slide already cached/reviewed),
+  // and post follow-ups. When no model call was needed (every slide already in the library),
   // seed a context-only conversation — slides + current translations + general context — so a
   // later follow-up resumes with real context instead of replying blind, without spending a
   // model call now.
@@ -900,7 +900,7 @@ app.post('/api/slideConversation/message', requireWriteKey('/api/slideConversati
     conversation.usage = mergeUsage(conversation.usage ?? emptyUsage(), result.usage);
     writeConversation(conversationsMap, conversation);
 
-    // Flatten revised translations for the browser to apply (auto / llm-agent provenance).
+    // Flatten revised translations for the browser to apply.
     const updatedTranslations: Array<{ language: string; sourceText: string; text: string }> = [];
     for (const [language, blocks] of Object.entries(result.translations)) {
       for (const block of blocks) {
