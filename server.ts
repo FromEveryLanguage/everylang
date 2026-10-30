@@ -48,15 +48,7 @@ import { makeSessionRouter } from './sessionRoutes.ts';
 import { makeSlideSnapshotRouter } from './slideSnapshotRoutes.ts';
 import { languages as FRONTEND_LANGUAGES } from './src/translationLanguages.ts';
 import { limitFromEnv, makeRateLimit } from './rateLimit.ts';
-
-// Get API keys from environment variables, crash if not set
-function getEnvOrCrash(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Environment variable ${name} is not set`);
-  }
-  return value;
-}
+import { readServerEnv } from './envConfig.ts';
 
 // Boot guard (#139). A config check that throws at the top level is meant to kill the
 // process — a supervisor restarts it, the log says why. But PostHog's exception autocapture
@@ -76,6 +68,8 @@ const failBoot = (err: unknown) => {
 process.on('uncaughtException', failBoot);
 process.on('unhandledRejection', failBoot);
 
+const serverEnv = readServerEnv();
+
 // Telemetry is genuinely optional: without a key the app still runs, which is what a
 // contributor's first `npm run dev:server` needs. Unconfigured, the client is still
 // *constructed* — with the SDK's own `disabled` switch, which short-circuits capture,
@@ -85,19 +79,19 @@ process.on('unhandledRejection', failBoot);
 // Exception autocapture is armed only when telemetry is real (see the boot guard above for
 // what its listeners do to a boot-time throw). The key is trimmed so a whitespace-only
 // value can't arm autocapture on a client the SDK has already disabled for having no key.
-const posthogKey = process.env.VITE_PUBLIC_POSTHOG_KEY?.trim();
+const posthogKey = serverEnv.VITE_PUBLIC_POSTHOG_KEY?.trim();
 const telemetryEnabled = Boolean(posthogKey);
 if (!telemetryEnabled) {
   console.log('[telemetry] VITE_PUBLIC_POSTHOG_KEY unset — PostHog disabled, events dropped');
 }
 const phClient = new PostHog(posthogKey ?? '', {
-  host: process.env.VITE_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com',
+  host: serverEnv.VITE_PUBLIC_POSTHOG_HOST!,
   enableExceptionAutocapture: telemetryEnabled,
   disabled: !telemetryEnabled,
 });
 
 const geminiProvider = new GeminiProvider({
-  apiKey: getEnvOrCrash('GEMINI_API_KEY'),
+  apiKey: serverEnv.GEMINI_API_KEY!,
   defaultModel: "gemini-2.5-flash-lite",
   maxTokens: 8192,
   posthog: phClient
@@ -107,30 +101,24 @@ const geminiProvider = new GeminiProvider({
 // translates all slides into all languages and sorts a multilingual reference dump into
 // the right languages, so capability matters more than the latency/cost of the hot
 // incremental notes path (which stays on defaultModel). Override via GEMINI_STRONG_MODEL.
-const STRONG_MODEL = process.env.GEMINI_STRONG_MODEL || 'gemini-3.7-flash';
+const STRONG_MODEL = serverEnv.GEMINI_STRONG_MODEL!;
 
 // General context injected into every slide-translation prompt: the setting and the intent
 // of the translations. Steers register and reminds the model these are for understanding,
 // not singing or literal liturgical reading. Override with SLIDE_TRANSLATION_CONTEXT.
-const SLIDE_TRANSLATION_CONTEXT = process.env.SLIDE_TRANSLATION_CONTEXT ||
-  'These slides are shown at a Presbyterian Church in America (PCA) worship service. The ' +
-  'translations are provided alongside the service so non-English speakers can follow along — ' +
-  'they are for understanding and reference, not for congregational singing or as an official ' +
-  'literal/liturgical rendering. When writing new translations, aim for clear and natural wording. ' +
-  'However, that does NOT apply to Scripture texts; they should be looked up using the tool and ' +
-  'the wording used without revision, even if it seems dated or awkward.';
+const SLIDE_TRANSLATION_CONTEXT = serverEnv.SLIDE_TRANSLATION_CONTEXT!;
 
-const ySweetConnectionString = getEnvOrCrash("YSWEET_CONNECTION_STRING");
+const ySweetConnectionString = serverEnv.YSWEET_CONNECTION_STRING!;
 // The userinfo part of a ys:// string is Y-Sweet's server token, a full-access credential.
 console.log('Y-Sweet Connection String:', ySweetConnectionString.replace(/\/\/[^@/]*@/, '//***@'));
 const documentManager = new DocumentManager(ySweetConnectionString);
 
 const elevenLabsClient = new ElevenLabsClient({
-  apiKey: getEnvOrCrash('ELEVENLABS_API_KEY'),
+  apiKey: serverEnv.ELEVENLABS_API_KEY!,
 });
 
 // TTS Configuration: Limit concurrent requests to prevent API spam
-const TTS_MAX_CONCURRENT = parseInt(process.env.TTS_MAX_CONCURRENT || '2', 10);
+const TTS_MAX_CONCURRENT = parseInt(serverEnv.TTS_MAX_CONCURRENT || '2', 10);
 const ttsLimiter = pLimit(TTS_MAX_CONCURRENT);
 
 const __filename = fileURLToPath(import.meta.url);
@@ -144,7 +132,7 @@ await fs.mkdir(AUDIO_CACHE_DIR, { recursive: true });
 // Persistent reviewed-translation library. Defaults into the audio-cache dir so it
 // rides along with the existing Docker volume; override with SLIDE_LIBRARY_PATH.
 const SLIDE_LIBRARY_PATH =
-  process.env.SLIDE_LIBRARY_PATH || path.join(AUDIO_CACHE_DIR, 'slide-library.json');
+  serverEnv.SLIDE_LIBRARY_PATH || path.join(AUDIO_CACHE_DIR, 'slide-library.json');
 const slideLibrary = new SlideLibrary(SLIDE_LIBRARY_PATH);
 await slideLibrary.load();
 console.log(`Slide translation library: ${SLIDE_LIBRARY_PATH} (${slideLibrary.list().length} entries)`);
@@ -153,11 +141,11 @@ console.log(`Slide translation library: ${SLIDE_LIBRARY_PATH} (${slideLibrary.li
 // Proclaim service's proposal, and the recent-writer sightings that make a disagreement
 // visible. Rides the same Docker volume as the slide library so a pin survives a restart.
 const SESSION_REGISTRY_PATH =
-  process.env.SESSION_REGISTRY_PATH || path.join(AUDIO_CACHE_DIR, 'current-session.json');
+  serverEnv.SESSION_REGISTRY_PATH || path.join(AUDIO_CACHE_DIR, 'current-session.json');
 // The congregation's zone, not the container's. Moving the date formula off the browser
 // moved it onto a clock that is UTC by default, which would file a Sunday-evening service
 // under Monday. Worth logging: a wrong zone here is a wrong doc for everyone.
-const sessionRegistry = new SessionRegistry(SESSION_REGISTRY_PATH, process.env.SESSION_TIMEZONE);
+const sessionRegistry = new SessionRegistry(SESSION_REGISTRY_PATH, serverEnv.SESSION_TIMEZONE);
 await sessionRegistry.load();
 const bootSession = sessionRegistry.current();
 console.log(
@@ -225,7 +213,7 @@ function recordBibleLookup(call: BibleToolCall, conversationId: string, docId: s
 // allowed regardless. That makes it safe to ship keys to the clients first and read
 // the logs for a week before flipping WRITE_AUTH_MODE=enforce.
 // ---------------------------------------------------------------------------
-const writeAuthConfig = resolveWriteAuthConfig(process.env);
+const writeAuthConfig = resolveWriteAuthConfig(serverEnv);
 for (const notice of writeAuthConfig.notices) console.log(notice);
 
 const writeAuth = new WriteAuth(writeAuthConfig, (audit) => {
@@ -273,9 +261,9 @@ function requireWriteKey(route: string): express.RequestHandler {
 // fetches one line at a time) because a congregation shares one public address and the
 // thing being stopped is a script in a loop, not a busy Sunday. Set either to 0 to disable.
 // ---------------------------------------------------------------------------
-const TTS_RATE_LIMIT_PER_MIN = limitFromEnv(process.env.TTS_RATE_LIMIT_PER_MIN, 600);
+const TTS_RATE_LIMIT_PER_MIN = limitFromEnv(serverEnv.TTS_RATE_LIMIT_PER_MIN, 600);
 const TRANSLATE_RATE_LIMIT_PER_MIN = limitFromEnv(
-  process.env.TRANSLATE_RATE_LIMIT_PER_MIN,
+  serverEnv.TRANSLATE_RATE_LIMIT_PER_MIN,
   1200,
 );
 
@@ -353,12 +341,12 @@ setupExpressRequestContext(phClient, app);
 // install script reads only these two), and the landing page's per-deployment settings
 // (issue #133). SITE_LANGUAGES is validated here at boot, so a typo'd code stops the
 // server rather than quietly disappearing from the page.
-const SITE_NAME = process.env.SITE_NAME?.trim() ?? '';
-const SITE_LANGUAGES = parseSiteLanguages(process.env.SITE_LANGUAGES, DEFAULT_SITE_LANGUAGES);
+const SITE_NAME = serverEnv.SITE_NAME?.trim() ?? '';
+const SITE_LANGUAGES = parseSiteLanguages(serverEnv.SITE_LANGUAGES, DEFAULT_SITE_LANGUAGES);
 app.get('/api/config', (_req, res) => {
   res.json({
-    posthogKey: process.env.VITE_PUBLIC_POSTHOG_KEY ?? '',
-    posthogHost: process.env.VITE_PUBLIC_POSTHOG_HOST ?? '',
+    posthogKey: serverEnv.VITE_PUBLIC_POSTHOG_KEY ?? '',
+    posthogHost: serverEnv.VITE_PUBLIC_POSTHOG_HOST ?? '',
     siteName: SITE_NAME,
     siteLanguages: SITE_LANGUAGES,
     sourceLanguage: DEFAULT_SOURCE_LANGUAGE_ENV,
@@ -399,7 +387,7 @@ app.use(
 // session doc and translating ahead happen here, against a synced doc, in one process.
 // Languages to translate slides into ahead of time. Defaults to the frontend's picker, which
 // is what viewers can choose and therefore what is worth paying for.
-const SLIDE_TRANSLATION_LANGUAGES = (process.env.SLIDE_TRANSLATION_LANGUAGES ?? FRONTEND_LANGUAGES.join(','))
+const SLIDE_TRANSLATION_LANGUAGES = (serverEnv.SLIDE_TRANSLATION_LANGUAGES ?? FRONTEND_LANGUAGES.join(','))
   .split(',')
   .map((language) => language.trim())
   .filter(Boolean);
@@ -451,9 +439,9 @@ app.use(
 const ORGANIZER_IDENTITY = 'organizer-host';
 
 function getLiveKitConfig(): { url: string; apiKey: string; apiSecret: string } | null {
-  const url = process.env.LIVEKIT_URL;
-  const apiKey = process.env.LIVEKIT_API_KEY;
-  const apiSecret = process.env.LIVEKIT_API_SECRET;
+  const url = serverEnv.LIVEKIT_URL;
+  const apiKey = serverEnv.LIVEKIT_API_KEY;
+  const apiSecret = serverEnv.LIVEKIT_API_SECRET;
   if (!url || !apiKey || !apiSecret) return null;
   return { url, apiKey, apiSecret };
 }
@@ -463,13 +451,13 @@ function getLiveKitConfig(): { url: string; apiKey: string; apiSecret: string } 
 // means bridges never suspend. The goaway/reconnect buffering is independent of this
 // and always on, as is the default translator — silence gating no longer decides
 // which bridges exist, only what an existing one does while nobody is speaking.
-const SILENCE_THRESHOLD_DBFS = parseSilenceThresholdDbfs(process.env.LIVE_AUDIO_SILENCE_THRESHOLD_DBFS);
+const SILENCE_THRESHOLD_DBFS = parseSilenceThresholdDbfs(serverEnv.LIVE_AUDIO_SILENCE_THRESHOLD_DBFS);
 
 // What a session is assumed to be spoken in when its broadcaster doesn't declare a
 // language — an older client, or the unattended macOS audio feeder, which publishes as
 // organizer with no UI to ask. Browsers say so per session (see src/liveAudioConfig.ts);
 // this is the deployment-wide fallback, and `en` keeps every existing install as it was.
-const DEFAULT_SOURCE_LANGUAGE_ENV = normalizeSourceLanguage(process.env.LIVE_AUDIO_SOURCE_LANGUAGE);
+const DEFAULT_SOURCE_LANGUAGE_ENV = normalizeSourceLanguage(serverEnv.LIVE_AUDIO_SOURCE_LANGUAGE);
 
 // Give the translation manager what it needs to persist transcripts into Yjs and
 // reap idle translator bots. No-op for transcript/reaper if LiveKit is unconfigured.
@@ -479,6 +467,7 @@ const DEFAULT_SOURCE_LANGUAGE_ENV = normalizeSourceLanguage(process.env.LIVE_AUD
     TranslationSessionManager.getInstance().init({
       docFactory: (docId) => connectServerDoc(docId, documentManager),
       livekit: lk,
+    geminiApiKey: serverEnv.GEMINI_API_KEY!,
       telemetry: phClient,
       silenceThresholdDbfs: SILENCE_THRESHOLD_DBFS,
       defaultSourceLanguage: DEFAULT_SOURCE_LANGUAGE_ENV,
@@ -643,7 +632,7 @@ const SIMULATE_SCENARIOS: Record<string, SimulateScenarioKind> = {
 
 app.post('/api/livekit/translate/simulate', async (req, res) => {
   try {
-    if (process.env.NODE_ENV === 'production' && process.env.ALLOW_CHAOS_ENDPOINT !== '1') {
+    if (serverEnv.NODE_ENV === 'production' && serverEnv.ALLOW_CHAOS_ENDPOINT !== '1') {
       return res.status(403).json({ error: 'Chaos endpoint disabled in production' });
     }
     if (!getLiveKitConfig()) return res.status(503).json({ error: 'LiveKit not configured' });
@@ -1074,7 +1063,7 @@ app.post('/api/tts', ttsRateLimit, async (req, res) => {
 });
 
 
-const PORT = process.env.PORT || 8000;
+const PORT = serverEnv.PORT || 8000;
 app.set("port", PORT);
 
 

@@ -14,17 +14,10 @@ import { DocumentManager } from '@y-sweet/sdk';
 import * as Y from 'yjs';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { readServerEnv } from './envConfig.ts';
 
-// Get environment variable or crash
-function getEnvOrCrash(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Environment variable ${name} is not set`);
-  }
-  return value;
-}
-
-const documentManager = new DocumentManager(getEnvOrCrash("YSWEET_CONNECTION_STRING"));
+const env = readServerEnv();
+const documentManager = new DocumentManager(env.YSWEET_CONNECTION_STRING!);
 
 // Generate all dates from start to today in YYYY-MM-DD format
 function generateDateRange(startDate: string): string[] {

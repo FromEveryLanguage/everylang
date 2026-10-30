@@ -235,7 +235,7 @@ describe('boot without telemetry configured', () => {
     const res = await fetch(`${bareBase}/api/config`);
     expect(res.status).toBe(200);
     // Empty rather than absent, so the install script's fetch of this still parses.
-    expect(await res.json()).toMatchObject({ posthogKey: '', posthogHost: '' });
+    expect(await res.json()).toMatchObject({ posthogKey: '', posthogHost: 'https://us.i.posthog.com' });
   });
 
   it('says on stdout that telemetry is off, rather than failing silently', () => {
@@ -269,7 +269,7 @@ describe('boot with bad config', () => {
     {
       what: 'a missing required variable',
       env: { GEMINI_API_KEY: '' },
-      message: 'Environment variable GEMINI_API_KEY is not set',
+      message: 'Missing required environment variables:\n- GEMINI_API_KEY:',
     },
     {
       // A typo'd landing-page language must stop the server, not vanish from the page (#133).

@@ -29,54 +29,15 @@ cp template-.env .env
 npm install
 ```
 
-Environment variables. **`template-.env` is the list**; it carries every variable with its
-comment, and a variable missing from it is a bug in the template, not something to learn from
-here. What follows is only the shape — which ones stop the server booting, and which subsystem
-each belongs to. Defaults are deliberately not repeated here: they live next to the code that
-reads them, which is where they stay correct.
+Environment configuration has one declaration per variable in
+[envConfig.ts](envConfig.ts). It is read by server startup; its declarations also drive the
+generated [template-.env](template-.env). Run `npm run env:generate` after changing
+configuration and `npm run env:check` to verify the generated template is committed.
 
-**Required** — the server refuses to boot without these (`getEnvOrCrash` in `server.ts`):
-`YSWEET_CONNECTION_STRING`, `GEMINI_API_KEY`, `ELEVENLABS_API_KEY`.
-
-**Optional, grouped by what they turn on:**
-
-- *Write authorization* (`WRITE_KEYS`, `WRITE_AUTH_MODE`) — shared per-device keys gating
-  editing, the microphone, and the endpoints that spend money. Reading never needs one.
-  `observe` records what it would have refused and refuses nothing; check the mode before
-  concluding a key is enforced. See [docs/WRITE_KEYS.md](docs/WRITE_KEYS.md).
-- *Live speech translation* (`LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`) — **the
-  whole live-audio subsystem is off unless all three are set**, and the `listen-*` / `broadcast`
-  panes are disabled with it. The rest of the app runs fine without them, which is why a
-  missing translator bot is so often just an unconfigured environment.
-- *Live-audio behavior* (`LIVE_AUDIO_SOURCE_LANGUAGE`, `LIVE_AUDIO_SILENCE_THRESHOLD_DBFS`) —
-  the fallback spoken language when a broadcaster declares none, and the dBFS voice bar for
-  the cost path (unset = no suspending at all; mind the sign, dBFS is negative, so `0` gates
-  hardest). See [src/liveAudioConfig.ts](src/liveAudioConfig.ts) and
-  [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
-- *The current session* (`SESSION_TIMEZONE`, `SESSION_REGISTRY_PATH`) — the congregation's IANA
-  zone, which the server reckons session dates and the pin expiry on. A container's zone is
-  UTC, which files a Sunday-evening service under Monday (issue #111). See
-  [docs/CURRENT_SESSION.md](docs/CURRENT_SESSION.md).
-- *Cost and rate control* (`TTS_MAX_CONCURRENT`, `TTS_RATE_LIMIT_PER_MIN`,
-  `TRANSLATE_RATE_LIMIT_PER_MIN`) — the two endpoints viewers call directly and a write key
-  can't protect. Sized to stop a script, not a congregation; `0` disables. See
-  [rateLimit.ts](rateLimit.ts).
-- *Model and prompt overrides* (`GEMINI_STRONG_MODEL`, `SLIDE_TRANSLATION_CONTEXT`,
-  `SLIDE_TRANSLATION_LANGUAGES`) — the stronger model used for whole-item slide drafting, the
-  general context injected into every slide-translation prompt, and the languages the
-  Proclaim feed is translated into ahead of time. All defaulted in `server.ts`.
-- *Landing page* (`SITE_NAME`, `SITE_LANGUAGES`) — which language cards the front door
-  offers, in order; served to the client via `/api/config`. Destinations are derived from
-  capabilities in [src/siteLanguages.ts](src/siteLanguages.ts), and an unservable code stops
-  the boot. See [docs/LANDING_PAGE.md](docs/LANDING_PAGE.md).
-- *Storage paths* (`SLIDE_LIBRARY_PATH`) — the reviewed-translation library; defaults inside
-  the audio-cache dir so it rides the existing Docker volume.
-- *Telemetry* (`VITE_PUBLIC_POSTHOG_KEY`, `VITE_PUBLIC_POSTHOG_HOST`) — genuinely optional.
-  With no key the client is constructed with the SDK's own `disabled` switch and the server
-  logs `[telemetry] ... disabled`; nothing else changes. `POSTHOG_CLI_TOKEN` / `POSTHOG_CLI_ENV_ID`
-  / `POSTHOG_CLI_HOST` are build-time only, for sourcemap upload in the Dockerfile.
-- *Testing escape hatch* (`ALLOW_CHAOS_ENDPOINT`, `PORT`) — the chaos endpoint is refused in
-  production unless explicitly allowed.
+The server validates required configuration and aggregates missing variables at startup.
+Optional subsystems remain isolated: live audio needs its complete credential group, and
+missing telemetry credentials disable telemetry rather than stopping the app. Defaults and
+variable names belong in the declaration registry/generated template, not this prose.
 
 ### Development
 ```bash
