@@ -13,11 +13,19 @@ from proclaim_lib import ServiceItemWithSlides
 pytestmark = pytest.mark.anyio
 
 
-def make_feed(order_sync_interval: float = 0.0) -> ProclaimFeed:
-    """Build a feed with the DB faked and the order always eligible to sync."""
+def make_feed(order_sync_interval: float = 0.0, revision_settle_window: float = 0.0) -> ProclaimFeed:
+    """Build a feed with the DB faked and the order always eligible to sync.
+
+    The settle window defaults to 0 here so tests that aren't about it see exactly one
+    re-parse per revision change.
+    """
     db = mock.MagicMock()
     db.get_presentation.return_value = None
-    return ProclaimFeed(db=db, order_sync_interval=order_sync_interval)
+    return ProclaimFeed(
+        db=db,
+        order_sync_interval=order_sync_interval,
+        revision_settle_window=revision_settle_window,
+    )
 
 
 def onair_status(item_id="i1", slide_index=0, presentation_id="pres-1"):
@@ -77,6 +85,65 @@ async def test_poll_syncs_order_and_caches_revisions():
         presentation["serviceItems"][0]["slides"][0]["localRevision"] = 5
         await feed.poll()
         assert calls == ["i1", "i2", "i1"]
+
+
+def test_lagging_db_write_is_picked_up_within_settle_window():
+    """The API bumps the revision before Proclaim writes the DB row: the first re-read sees
+    the old Content, so the item keeps being re-read until the window closes."""
+    feed = make_feed(revision_settle_window=10.0)
+    presentation = presentation_with([
+        {"id": "i1", "title": "Song", "kind": "SongLyrics", "slides": [{"localRevision": 1}]},
+    ])
+    db_slides = ["Verse"]
+    calls = []
+
+    def fake_parse(_db, item_id):
+        calls.append(item_id)
+        return ServiceItemWithSlides(item_id, "Song", list(db_slides), "SongLyrics")
+
+    with mock.patch.object(pf, "parse_item_original", fake_parse):
+        feed._sync_order(presentation, now=0.0)
+        # Past the first sighting's window: settled, no re-read.
+        feed._sync_order(presentation, now=20.0)
+        assert len(calls) == 1
+
+        # Operator adds a title slide: revision moves, DB still has the old row.
+        presentation["serviceItems"][0]["slides"].append({"localRevision": 2})
+        feed._sync_order(presentation, now=30.0)
+        assert feed._items["i1"].slides == ["Verse"]
+
+        # DB catches up; the same revision is re-read inside the window.
+        db_slides[:] = ["Song", "Verse"]
+        feed._sync_order(presentation, now=32.0)
+        assert feed._items["i1"].slides == ["Song", "Verse"]
+        assert len(calls) == 3
+
+        # Window closed: back to trusting the revision.
+        feed._sync_order(presentation, now=41.0)
+        feed._sync_order(presentation, now=43.0)
+        assert len(calls) == 3
+
+
+def test_settle_window_restarts_on_each_revision_change():
+    """A second edit inside the window extends re-reading from that edit."""
+    feed = make_feed(revision_settle_window=10.0)
+    presentation = presentation_with([
+        {"id": "i1", "title": "X", "kind": "Content", "slides": [{"localRevision": 1}]},
+    ])
+    calls = []
+
+    def fake_parse(_db, item_id):
+        calls.append(item_id)
+        return ServiceItemWithSlides(item_id, "X", ["A"], "Content")
+
+    with mock.patch.object(pf, "parse_item_original", fake_parse):
+        feed._sync_order(presentation, now=0.0)
+        presentation["serviceItems"][0]["slides"][0]["localRevision"] = 2
+        feed._sync_order(presentation, now=8.0)
+        feed._sync_order(presentation, now=15.0)  # inside the window opened at 8
+        assert len(calls) == 3
+        feed._sync_order(presentation, now=18.0)
+        assert len(calls) == 3
 
 
 async def test_poll_force_syncs_when_active_item_uncached():
@@ -168,6 +235,7 @@ def test_reset_clears_caches():
     feed = make_feed()
     feed._items = {"i1": object()}
     feed._item_revisions = {"i1": "r"}
+    feed._settling_until = {"i1": 5.0}
     feed._order = ["i1"]
     feed._session_pres_id = "pres-1"
     feed._translation_screen_idx = 3
@@ -176,6 +244,7 @@ def test_reset_clears_caches():
 
     assert feed._items == {}
     assert feed._item_revisions == {}
+    assert feed._settling_until == {}
     assert feed._order == []
     assert feed._session_pres_id is None
     assert feed._translation_screen_idx is None

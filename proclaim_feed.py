@@ -33,6 +33,13 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PROCLAIM_BASE_URL = 'http://127.0.0.1:52195'
 
+# How long after an item's revision changes we keep re-reading it from the DB. Proclaim's
+# API reports a new localRevision as soon as the operator edits an item (e.g. its title
+# slide setting), but the SQLite row can be written later; a single read at the moment the
+# revision moves can see the old Content and would then be cached under the new revision
+# for the rest of the run.
+DEFAULT_REVISION_SETTLE_WINDOW = 10.0
+
 
 class ProclaimClient:
     """Client for Proclaim's local HTTP API."""
@@ -83,9 +90,11 @@ class ProclaimFeed:
     """A ``SlideFeed`` backed by Proclaim's HTTP API + SQLite DB.
 
     ``poll`` never raises on a source problem (an unreachable/off-air Proclaim yields an
-    off-air snapshot). Items are re-parsed only when their Proclaim ``localRevision``
-    signature changes; ``existing_translation`` grounding is stamped onto each item at
-    parse time so downstream consumers (and, later, a replay feed) need no DB access.
+    off-air snapshot). Items are re-parsed when their Proclaim ``localRevision``
+    signature changes, and on every order sync for ``revision_settle_window`` seconds
+    after that (the DB can lag the API). ``existing_translation`` grounding is stamped
+    onto each item at parse time so downstream consumers (and, later, a replay feed)
+    need no DB access.
     """
 
     def __init__(
@@ -94,11 +103,13 @@ class ProclaimFeed:
         proclaim_base_url: str = DEFAULT_PROCLAIM_BASE_URL,
         db: Optional[ProclaimDB] = None,
         order_sync_interval: float = 2.0,
+        revision_settle_window: float = DEFAULT_REVISION_SETTLE_WINDOW,
         report_exception: Optional[Callable[[Exception], None]] = None,
     ):
         self.client = ProclaimClient(proclaim_base_url)
         self.db = db if db is not None else ProclaimDB()
         self.order_sync_interval = order_sync_interval
+        self.revision_settle_window = revision_settle_window
         self._report_exception = report_exception or (lambda _e: None)
         self._seq = 0
         self.reset()
@@ -111,6 +122,7 @@ class ProclaimFeed:
         """Drop all source-side caches (called on doc rollover)."""
         self._items: Dict[str, FeedItem] = {}
         self._item_revisions: Dict[str, str] = {}
+        self._settling_until: Dict[str, float] = {}
         self._order: List[str] = []
         self._last_order_sync = float('-inf')
         self._presentation_id: Optional[str] = None
@@ -154,7 +166,7 @@ class ProclaimFeed:
         ):
             presentation = await self._fetch_onair_presentation()
             if presentation:
-                self._sync_order(presentation)
+                self._sync_order(presentation, now)
             self._last_order_sync = now
 
         return FeedSnapshot(
@@ -194,12 +206,14 @@ class ProclaimFeed:
 
     # -- order sync / parsing --------------------------------------------------
 
-    def _sync_order(self, presentation: Dict[str, Any]) -> None:
+    def _sync_order(self, presentation: Dict[str, Any], now: float) -> None:
         """Update the cached order + items from the on-air presentation.
 
-        Only items whose Proclaim ``localRevision`` signature changed (or that we haven't
-        seen) are re-read from the DB; a DB/parse error for one item is logged and skipped
-        (its revision is left uncached so we retry next sync) rather than dropping the order.
+        Items whose Proclaim ``localRevision`` signature changed (or that we haven't seen)
+        are re-read from the DB, and keep being re-read until ``revision_settle_window``
+        has passed since the change, so a DB write that lands after the API's revision bump
+        is still picked up. A DB/parse error for one item is logged and skipped (its
+        revision is left uncached so we retry next sync) rather than dropping the order.
         """
         signatures = service_item_signatures(presentation)
         self._order = [sig['id'] for sig in signatures if sig['id']]
@@ -208,11 +222,14 @@ class ProclaimFeed:
             item_id = sig['id']
             if not item_id:
                 continue
-            unchanged = (
-                self._item_revisions.get(item_id) == sig['revision']
-                and item_id in self._items
+            cached = self._items.get(item_id)
+            revision_changed = (
+                self._item_revisions.get(item_id) != sig['revision'] or cached is None
             )
-            if unchanged:
+            if revision_changed:
+                self._settling_until[item_id] = now + self.revision_settle_window
+            elif now >= self._settling_until.get(item_id, float('-inf')):
+                self._settling_until.pop(item_id, None)
                 continue
 
             try:
@@ -223,11 +240,13 @@ class ProclaimFeed:
             if not parsed:
                 continue
 
-            self._items[item_id] = self._to_feed_item(parsed)
+            item = self._to_feed_item(parsed)
+            self._items[item_id] = item
             self._item_revisions[item_id] = sig['revision']
-            logger.info(
-                f"Synced item {item_id} ({parsed.title}) with {len(parsed.slides)} original slides"
-            )
+            if cached is None or cached.slides_hash != item.slides_hash:
+                logger.info(
+                    f"Synced item {item_id} ({parsed.title}) with {len(parsed.slides)} original slides"
+                )
 
     def _to_feed_item(self, parsed) -> FeedItem:
         """Convert a parsed ServiceItemWithSlides into a FeedItem with hash + grounding."""
