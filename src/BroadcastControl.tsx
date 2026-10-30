@@ -28,6 +28,7 @@ import { writeSourceLanguage } from "./liveAudioConfig";
 import { useSourceLanguage } from "./useSourceLanguage";
 import { getDocId } from "./getDocId";
 import { apiFetch } from "./writeKey";
+import { FreshTranscriptButton } from "./FreshTranscriptButton";
 
 interface TranslationInfo {
   language: string;
@@ -275,6 +276,10 @@ export function BroadcastControl() {
         >
           {connecting ? s.connecting : `🎙️ ${s.startBroadcast}`}
         </button>
+        {/* Here rather than only on /status because this is where a demo ends: whoever
+            ran it is still looking at this pane. Offered only before going live — once
+            this pane is broadcasting, the transcript is the talk itself. */}
+        <FreshTranscriptButton docId={docId} />
       </div>
     );
   }

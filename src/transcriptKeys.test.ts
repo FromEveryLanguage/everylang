@@ -3,6 +3,7 @@ import * as Y from 'yjs';
 import { writeSourceLanguage } from './liveAudioConfig';
 import {
   TRANSCRIPT_PAUSE_MS,
+  clearLiveTranscripts,
   formatPauseGap,
   isLongPause,
   liveTranscriptCodes,
@@ -188,5 +189,37 @@ describe('formatPauseGap', () => {
 describe('transcriptPlainText', () => {
   it('joins utterances with a blank line between them', () => {
     expect(transcriptPlainText([{ text: 'One.' }, { text: 'Two.' }])).toBe('One.\n\nTwo.');
+  });
+});
+
+describe('clearLiveTranscripts', () => {
+  it('empties every transcript in both namespaces and reports which held anything', () => {
+    const doc = new Y.Doc();
+    pushSegment(doc, 'es', { text: 'Hola a todos.', startedAt: 1 });
+    pushSegment(doc, 'en', { text: 'Hello everyone.', startedAt: 1 });
+    doc.getText('liveTranscript-fr').insert(0, 'Bonjour.');
+    doc.getArray(transcriptSegmentsKey('ht')); // present but already empty
+
+    expect(clearLiveTranscripts(doc)).toEqual(['en', 'es', 'fr']);
+    for (const code of ['en', 'es', 'fr', 'ht']) {
+      expect(readTranscriptSegments(doc, code)).toEqual([]);
+    }
+  });
+
+  it('leaves everything that is not a live transcript alone', () => {
+    const doc = new Y.Doc();
+    writeSourceLanguage(doc, 'es');
+    doc.getMap('notesTranslationCache').set('French:Hi', 'Salut');
+    doc.getXmlFragment('transcriptDoc'); // the legacy Web Speech transcript is not ours
+    pushSegment(doc, 'es', { text: 'Hola.', startedAt: 1 });
+
+    clearLiveTranscripts(doc);
+
+    expect(doc.getMap('liveAudioConfig').get('sourceLanguage')).toBe('es');
+    expect(doc.getMap('notesTranslationCache').get('French:Hi')).toBe('Salut');
+  });
+
+  it('reports nothing for a doc with no transcripts', () => {
+    expect(clearLiveTranscripts(new Y.Doc())).toEqual([]);
   });
 });

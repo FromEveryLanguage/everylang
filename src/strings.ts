@@ -125,6 +125,13 @@ export interface AppStrings {
   statusTranscriptsEmpty: string;
   statusTranscriptSource: string;
   statusTranscriptNoUpdates: string;
+  freshTranscript: string;
+  freshTranscriptConfirm: string;
+  freshTranscriptBroadcasterLive: string;
+  freshTranscriptPresenceUnknown: string;
+  freshTranscriptDone: string;
+  freshTranscriptNothing: string;
+  freshTranscriptFailed: string;
   statusUpdatePending: string;
 
   // Layout diagram component labels
@@ -279,6 +286,13 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptsEmpty: 'No live transcripts in this session yet.',
     statusTranscriptSource: 'source',
     statusTranscriptNoUpdates: 'No updates since page load',
+    freshTranscript: 'Start fresh transcript',
+    freshTranscriptConfirm: 'Delete every live transcript in this session, for everyone? This cannot be undone.',
+    freshTranscriptBroadcasterLive: 'Someone is broadcasting right now. Clearing will also delete what they have said so far. Clear anyway?',
+    freshTranscriptPresenceUnknown: 'Could not check whether anyone is broadcasting. Clear anyway?',
+    freshTranscriptDone: 'Transcripts cleared.',
+    freshTranscriptNothing: 'There were no transcripts to clear.',
+    freshTranscriptFailed: 'Could not clear the transcripts.',
     statusUpdatePending: 'Update pending — restart the service',
     slideReviewTitle: 'Slide Translation Review',
     loadOnAirItem: 'Load on-air item',
@@ -423,6 +437,13 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptsEmpty: 'Aucune transcription en direct dans cette session pour l’instant.',
     statusTranscriptSource: 'source',
     statusTranscriptNoUpdates: 'Aucune mise à jour depuis le chargement de la page',
+    freshTranscript: 'Recommencer la transcription',
+    freshTranscriptConfirm: 'Supprimer toutes les transcriptions en direct de cette session, pour tout le monde ? Cette action est irréversible.',
+    freshTranscriptBroadcasterLive: 'Quelqu’un diffuse en ce moment. Effacer supprimera aussi ce qui a déjà été dit. Effacer quand même ?',
+    freshTranscriptPresenceUnknown: 'Impossible de vérifier si quelqu’un diffuse. Effacer quand même ?',
+    freshTranscriptDone: 'Transcriptions effacées.',
+    freshTranscriptNothing: 'Il n’y avait aucune transcription à effacer.',
+    freshTranscriptFailed: 'Impossible d’effacer les transcriptions.',
     statusUpdatePending: 'Mise à jour en attente — redémarrez le service',
     slideReviewTitle: 'Révision des traductions de diapositives',
     loadOnAirItem: 'Charger l’élément à l’antenne',
@@ -567,6 +588,13 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptsEmpty: 'Aún no hay transcripciones en vivo en esta sesión.',
     statusTranscriptSource: 'fuente',
     statusTranscriptNoUpdates: 'Sin actualizaciones desde que se cargó la página',
+    freshTranscript: 'Empezar transcripción nueva',
+    freshTranscriptConfirm: '¿Borrar todas las transcripciones en vivo de esta sesión, para todos? No se puede deshacer.',
+    freshTranscriptBroadcasterLive: 'Alguien está transmitiendo ahora mismo. Borrar también eliminará lo que ya ha dicho. ¿Borrar de todos modos?',
+    freshTranscriptPresenceUnknown: 'No se pudo comprobar si alguien está transmitiendo. ¿Borrar de todos modos?',
+    freshTranscriptDone: 'Transcripciones borradas.',
+    freshTranscriptNothing: 'No había transcripciones que borrar.',
+    freshTranscriptFailed: 'No se pudieron borrar las transcripciones.',
     statusUpdatePending: 'Actualización pendiente — reinicie el servicio',
     slideReviewTitle: 'Revisi\u00f3n de traducciones de diapositivas',
     loadOnAirItem: 'Cargar elemento al aire',
@@ -711,6 +739,13 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptsEmpty: 'Poko gen transkripsyon an dirèk nan sesyon sa a.',
     statusTranscriptSource: 'sous',
     statusTranscriptNoUpdates: 'Pa gen mizajou depi paj la chaje',
+    freshTranscript: 'Rekòmanse transkripsyon an',
+    freshTranscriptConfirm: 'Efase tout transkripsyon an dirèk nan sesyon sa a, pou tout moun? Ou pa ka anile sa.',
+    freshTranscriptBroadcasterLive: 'Gen yon moun k ap difize kounye a. Efase ap retire sa li deja di tou. Efase kanmenm?',
+    freshTranscriptPresenceUnknown: 'Nou pa t ka verifye si gen yon moun k ap difize. Efase kanmenm?',
+    freshTranscriptDone: 'Transkripsyon yo efase.',
+    freshTranscriptNothing: 'Pa t gen okenn transkripsyon pou efase.',
+    freshTranscriptFailed: 'Nou pa t ka efase transkripsyon yo.',
     statusUpdatePending: 'Gen yon mizajou k ap tann — rekòmanse sèvis la',
     slideReviewTitle: 'Revizyon Tradiksyon Diapozitiv',
     loadOnAirItem: 'Chaje eleman k ap pase a',

@@ -458,6 +458,29 @@ describe("TranslationSessionManager supervisor", () => {
     expect(runningLanguages(manager, "doc-1")).toEqual(["es", "fr"]);
   });
 
+  it("tells a live broadcaster from a room of listeners, and a missing room from a blind spot", async () => {
+    const { manager } = makeManager(
+      new Map([
+        ["doc-live", [organizer, listener("a", "es")]],
+        ["doc-listeners", [listener("b", "es")]],
+      ])
+    );
+    expect(await manager.broadcasterPresent("doc-live")).toBe(true);
+    expect(await manager.broadcasterPresent("doc-listeners")).toBe(false);
+    expect(await manager.broadcasterPresent("doc-nobody")).toBe(false);
+
+    manager.init({
+      livekit: { url: "ws://fake", apiKey: "k", apiSecret: "s" },
+      directory: {
+        listRooms: async () => {
+          throw new Error("livekit down");
+        },
+        listParticipants: async () => [],
+      },
+    });
+    await expect(manager.broadcasterPresent("doc-live")).rejects.toThrow("livekit down");
+  });
+
   it("stamps per-language listener counts for the dashboard", async () => {
     const { manager } = makeManager(
       new Map([["doc-1", [organizer, listener("a", "es"), listener("b", "es"), listener("c", "fr")]]])
