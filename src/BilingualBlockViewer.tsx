@@ -4,7 +4,8 @@ import snarkdown from 'snarkdown';
 import type { Block } from './blockTypes';
 import { useStickToBottom } from './reactUtils';
 import { useTTS } from './useTTS';
-import { useStrings } from './useLocale';
+import { useStrings, LANGUAGE_BCP47 } from './useLocale';
+import { SOURCE_TEXT_LANG } from './strings';
 
 export interface BilingualBlockViewerProps {
   blocks: Block[];
@@ -220,6 +221,7 @@ export function BilingualBlockViewer({
                 isPlayhead={isPlayhead}
                 isTTSEnabled={isTTSEnabled}
                 showOriginal={showOriginal}
+                translationLang={LANGUAGE_BCP47[language]}
                 onClick={() => handleBlockClick(index)}
               />
             );
@@ -250,6 +252,8 @@ interface BlockPairProps {
   isPlayhead: boolean;
   isTTSEnabled: boolean;
   showOriginal: boolean;
+  /** BCP 47 code of the translation; undefined for a language we have no code for. */
+  translationLang: string | undefined;
   onClick: () => void;
 }
 
@@ -262,6 +266,7 @@ function BlockPair({
   isPlayhead,
   isTTSEnabled,
   showOriginal,
+  translationLang,
   onClick,
 }: BlockPairProps) {
   const s = useStrings();
@@ -293,6 +298,7 @@ function BlockPair({
       {/* Original text - smaller and dimmer */}
       {showOriginal && (
         <div
+          lang={SOURCE_TEXT_LANG}
           className={`text-gray-500 dark:text-gray-400 ${headingClass}`}
           style={{ fontSize: fontSize * 0.6 }}
         >
@@ -308,7 +314,7 @@ function BlockPair({
         style={{ fontSize }}
       >
         {translationHtml ? (
-          <div dangerouslySetInnerHTML={{ __html: translationHtml }} />
+          <div lang={translationLang} dangerouslySetInnerHTML={{ __html: translationHtml }} />
         ) : (
           <span className="text-gray-400 dark:text-gray-500 italic">
             {s.notTranslated}

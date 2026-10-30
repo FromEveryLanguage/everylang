@@ -56,6 +56,19 @@ describe('SlideTranslationViewer', () => {
     expect(screen.queryByText('unreviewed')).not.toBeInTheDocument();
   });
 
+  it('marks the text with the language actually shown, not the one requested', () => {
+    // A screen reader picks its voice from lang; French text tagged as Creole is misread.
+    render(
+      <SlideTranslationViewer
+        slides={['Praise the Lord']}
+        currentIndex={0}
+        language="Haitian Creole"
+        resolvedBySlide={[resolved('Louez le Seigneur', 'reviewed', 'French', 'Haitian Creole')]}
+      />,
+    );
+    expect(screen.getByText('Louez le Seigneur').closest('[lang]')).toHaveAttribute('lang', 'fr');
+  });
+
   it('shows a not-translated placeholder when the current slide has no resolution', () => {
     render(
       <SlideTranslationViewer
