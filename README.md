@@ -1,27 +1,35 @@
-# To set up
+## Local development
 
-- Copy `template-.env` to `.env`
-- Set `YSWEET_CONNECTION_STRING` to a reachable Y-Sweet instance. The backend requires it
-  at startup, along with the Gemini and ElevenLabs keys below. For a local Y-Sweet
-  instance, `npm run dev:ysweet` starts the service on port 5007; run it in a separate
-  terminal and configure the connection string for that instance.
-- Get a Gemini API key and add it to `.env` as `GEMINI_API_KEY`.
-- Get an ElevenLabs API key and add it to `.env` as `ELEVENLABS_API_KEY`.
-- Run `npm install` to install packages.
+1. If you have not installed the dependencies yet, run `npm install`.
+2. Copy `template-.env` to `.env` and fill in the required credentials before starting
+   any services:
+   - Add your Gemini and ElevenLabs API keys as `GEMINI_API_KEY` and
+     `ELEVENLABS_API_KEY`.
+   - Add your Y-Sweet connection string as `YSWEET_CONNECTION_STRING`.
+   - Create a free project at [LiveKit Cloud](https://cloud.livekit.io/), create an API
+     key for the project, and add its URL, API key, and API secret to `.env` as
+     `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`.
+3. In a terminal, start Y-Sweet:
 
-## To run
+   ```bash
+   npm run dev:ysweet
+   ```
 
-Backend:
+4. In a second terminal, start the backend:
 
-```
-npm run dev:server
-```
+   ```bash
+   npm run dev:server
+   ```
 
-Frontend:
+5. In a third terminal, start the frontend:
 
-```
-npm run dev
-```
+   ```bash
+   npm run dev
+   ```
+
+6. Open the broadcast page at
+   [http://127.0.0.1:[PORT]/broadcast%7Clisten-fr#editor](http://127.0.0.1:5008/broadcast%7Clisten-fr#editor).
+   Replace [PORT] with the port number printed in the terminal when you started the frontend. Ex: 5008.
 
 ## Testing & Building
 
@@ -60,14 +68,14 @@ docker compose up -d
 ./deploy-docker-compose.sh
 ```
 
-It runs `git pull`, builds, and starts with `compose.prod.yaml` (which sets the public
-y-sweet URL). `deploy-flyio.sh` is the Fly.io equivalent.
+It builds and starts with `compose.prod.yaml` (which sets the public y-sweet URL). The
+`git pull` command in the script is commented out, so update the checkout on the server
+before running it if you want to deploy the latest branch.
 
-Note on the commands described above: despite the sentence above, `deploy-docker-compose.sh`
-currently does not run `git pull` (the command is commented out), so update the checkout on
-the server before running it if you want to deploy the latest branch. `deploy-flyio.sh`
-deploys the app only; the Y-Sweet service is separate and must already be deployed and
-configured for the app.
+Fly.io is not currently used; it was a temporary deployment while the main server had
+hardware trouble. `deploy-flyio.sh` deploys the app. It includes a Y-Sweet deploy command,
+but that command is intentionally commented out so routine app deployments do not also
+redeploy Y-Sweet, which changes infrequently.
 
 ### Other commands
 
@@ -96,4 +104,3 @@ This is a live translation application for presentations/talks. It provides:
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the application components fit
 together, and [docs/PROCLAIM_INTEGRATION.md](docs/PROCLAIM_INTEGRATION.md) for Proclaim setup.
 See [CLAUDE.md](CLAUDE.md) for detailed architecture and development information.
-
