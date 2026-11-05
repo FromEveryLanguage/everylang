@@ -4,6 +4,8 @@ The server side (what is done with a snapshot) is tested in TypeScript; these pi
 cadence and the wire body, with an injected ``post`` standing in for the server.
 """
 
+import gzip
+import json
 from datetime import date
 
 import anyio
@@ -138,6 +140,29 @@ async def test_one_connection_pool_for_the_whole_run_and_closed_after():
     assert len(requests) == 3
     assert client.is_closed
     assert pusher._client is None
+
+
+async def test_posts_the_body_gzipped_as_json():
+    """The wire format the server's express.json inflates: gzip, labelled, with the key."""
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"docId": "doc-2030-01-15", "active": True})
+
+    snap = on_air_snap(slide=1)
+    pusher = HttpSnapshotPusher(FakeFeed([snap]), "http://server", write_key="k-1")
+    pusher._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    await pusher.push(snap)
+
+    (request,) = requests
+    assert request.headers["content-encoding"] == "gzip"
+    assert request.headers["content-type"] == "application/json"
+    assert request.headers["x-write-key"] == "k-1"
+    body = json.loads(gzip.decompress(request.content))
+    assert body["snapshot"] == snap.to_json()
+    await pusher._client.aclose()
 
 
 async def test_on_air_since_is_set_on_going_on_air_kept_while_on_and_cleared_off():

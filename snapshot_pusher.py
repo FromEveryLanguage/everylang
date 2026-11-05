@@ -12,12 +12,20 @@ can tell a quiet service from a dead one. A failed POST is retried with backoff,
 the invariant is the launch wrapper's — keep running — and the next success fixes
 everything, because it carries everything.
 
+The body is gzipped. A snapshot carries every item's slides (~30 KB for a real service) to
+move one slide index, and it is sent on every change and every heartbeat; gzip makes that
+~7 KB. The server's ``express.json`` inflates it with no code of its own (body-parser decodes
+``Content-Encoding``), so nothing there had to change to accept it. gzip rather than brotli
+because it is in the standard library on the Proclaim Mac; brotli was only ~17% smaller.
+
 The server answers with the doc the slides went to and whether this machine is the one
 being followed. Both are logged when they change; neither changes what this loop does.
 """
 
 from __future__ import annotations
 
+import gzip
+import json
 import logging
 import uuid
 from dataclasses import dataclass
@@ -90,7 +98,12 @@ class HttpSnapshotPusher:
     async def _http_post(self, url: str, body: Dict[str, Any], headers: Dict[str, str]) -> Dict[str, Any]:
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=self.timing.request_timeout)
-        response = await self._client.post(url, json=body, headers=headers)
+        content = gzip.compress(json.dumps(body).encode('utf-8'), compresslevel=6)
+        response = await self._client.post(url, content=content, headers={
+            **headers,
+            'Content-Type': 'application/json',
+            'Content-Encoding': 'gzip',
+        })
         response.raise_for_status()
         answer = response.json()
         if not isinstance(answer, dict):

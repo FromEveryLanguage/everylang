@@ -27,6 +27,7 @@ import path from 'node:path';
 import net from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
 
 const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 
@@ -173,6 +174,39 @@ describe('static asset compression', () => {
     });
     expect(res.headers.get('content-encoding')).toBeNull();
     expect(await res.text()).toBe(FIXTURE_BODY);
+  });
+});
+
+/**
+ * The Proclaim service gzips its snapshot POSTs (snapshot_pusher.py) and nothing in the route
+ * inflates them: body-parser does, inside the `express.json` mounted for `/api/proclaim`. So
+ * this needs the real server — a parser registered after the route, or one built with
+ * `inflate: false`, would answer 400 here and every slide would stop. Off air, so the route
+ * answers without reaching for a Y-Sweet doc.
+ */
+describe('gzipped snapshot POST', () => {
+  const offAir = {
+    snapshot: { onAir: false, session: null, order: [], items: {}, seq: 1 },
+    service: { host: 'boot-test', instance: 'boot-test-1' },
+  };
+
+  it('accepts a gzipped JSON body', async () => {
+    const res = await fetch(`${base}/api/proclaim/snapshot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' },
+      body: gzipSync(JSON.stringify(offAir)),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, applied: false });
+  });
+
+  it('refuses a body labelled gzip that is not', async () => {
+    const res = await fetch(`${base}/api/proclaim/snapshot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' },
+      body: JSON.stringify(offAir),
+    });
+    expect(res.status).toBe(400);
   });
 });
 
