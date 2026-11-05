@@ -126,6 +126,10 @@ export interface AppStrings {
   statusTranscriptSource: string;
   statusTranscriptNoUpdates: string;
   statusUpdatePending: string;
+  /** Live-audio tile when Gemini refuses for billing reasons (credits, quota). */
+  statusLiveAudioBilling: string;
+  /** Live-audio tile when Gemini keeps failing for any other reason. */
+  statusLiveAudioError: string;
 
   // Layout diagram component labels
 
@@ -280,6 +284,8 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptSource: 'source',
     statusTranscriptNoUpdates: 'No updates since page load',
     statusUpdatePending: 'Update pending — restart the service',
+    statusLiveAudioBilling: 'Gemini billing problem — check AI Studio credits',
+    statusLiveAudioError: 'Gemini error',
     slideReviewTitle: 'Slide Translation Review',
     loadOnAirItem: 'Load on-air item',
     reTranslate: 'Re-translate',
@@ -424,6 +430,8 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptSource: 'source',
     statusTranscriptNoUpdates: 'Aucune mise à jour depuis le chargement de la page',
     statusUpdatePending: 'Mise à jour en attente — redémarrez le service',
+    statusLiveAudioBilling: 'Problème de facturation Gemini — vérifiez les crédits AI Studio',
+    statusLiveAudioError: 'Erreur Gemini',
     slideReviewTitle: 'Révision des traductions de diapositives',
     loadOnAirItem: 'Charger l’élément à l’antenne',
     reTranslate: 'Retraduire',
@@ -568,6 +576,8 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptSource: 'fuente',
     statusTranscriptNoUpdates: 'Sin actualizaciones desde que se cargó la página',
     statusUpdatePending: 'Actualización pendiente — reinicie el servicio',
+    statusLiveAudioBilling: 'Problema de facturación de Gemini — revise los créditos de AI Studio',
+    statusLiveAudioError: 'Error de Gemini',
     slideReviewTitle: 'Revisi\u00f3n de traducciones de diapositivas',
     loadOnAirItem: 'Cargar elemento al aire',
     reTranslate: 'Retraducir',
@@ -712,6 +722,8 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     statusTranscriptSource: 'sous',
     statusTranscriptNoUpdates: 'Pa gen mizajou depi paj la chaje',
     statusUpdatePending: 'Gen yon mizajou k ap tann — rekòmanse sèvis la',
+    statusLiveAudioBilling: 'Pwoblèm peman Gemini — tcheke kredi AI Studio yo',
+    statusLiveAudioError: 'Erè Gemini',
     slideReviewTitle: 'Revizyon Tradiksyon Diapozitiv',
     loadOnAirItem: 'Chaje eleman k ap pase a',
     reTranslate: 'Retradui',

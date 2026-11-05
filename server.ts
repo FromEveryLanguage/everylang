@@ -228,12 +228,23 @@ function recordBibleLookup(call: BibleToolCall, conversationId: string, docId: s
 const writeAuthConfig = resolveWriteAuthConfig(process.env);
 for (const notice of writeAuthConfig.notices) console.log(notice);
 
+// The (route, key) pairs already logged as ok. A key that works keeps working, so after
+// its first success the line says nothing new — and the Proclaim heartbeat alone was
+// ~6,600 of them a month, burying the refusals this log exists to show.
+const writeAuthOkLogged = new Set<string>();
+
 const writeAuth = new WriteAuth(writeAuthConfig, (audit) => {
-  // Log every outcome, and mirror it to PostHog so the observe week can be read as a
-  // chart ("is the Proclaim service presenting a key yet?") rather than by grepping.
+  // Log every refusal (and each key's first success per route), and mirror every
+  // outcome to PostHog so the observe week can be read as a chart ("is the Proclaim
+  // service presenting a key yet?") rather than by grepping.
   const line = formatAudit(audit);
-  if (audit.status === 'ok') console.log(line);
-  else console.warn(line);
+  if (audit.status === 'ok') {
+    const seen = `${audit.route} ${audit.label}`;
+    if (!writeAuthOkLogged.has(seen)) {
+      writeAuthOkLogged.add(seen);
+      console.log(`${line} (first ok for this key here; later ones not logged)`);
+    }
+  } else console.warn(line);
   phClient.capture({
     distinctId: auditDistinctId(audit),
     event: 'write_auth_check',
@@ -629,6 +640,9 @@ app.get('/api/livekit/translate/status', (req, res) => {
 //     -H 'content-type: application/json' \
 //     -d '{"sessionId":"doc-2026-07-13","scenario":"fullReconnect"}'
 //
+// `"scenario":"geminiGoAway"` (optional `"timeLeftS"`) instead fakes Gemini's ~9-minute
+// session warning, to watch a swap land on a pause and the old session drain.
+//
 // …then confirm translation audio keeps flowing and `organizer_audio_reconciled` fires with
 // trigger "reconnected". See docs/live-audio-resilience.md.
 //
@@ -652,15 +666,29 @@ app.post('/api/livekit/translate/simulate', async (req, res) => {
     const scenario = (req.body?.scenario as string | undefined) ?? 'fullReconnect';
     if (!sessionId) return res.status(400).json({ error: 'Missing sessionId' });
 
+    const manager = TranslationSessionManager.getInstance();
+
+    // Not a LiveKit scenario: a synthetic Gemini goAway, so the session-swap path can
+    // be exercised on demand instead of nine minutes into a session. Optional
+    // `timeLeftS` (default 50, what Gemini actually sends) sets the deadline.
+    if (scenario === 'geminiGoAway') {
+      const timeLeftS = Number(req.body?.timeLeftS ?? 50);
+      const languages = manager.simulateGoAway(sessionId, timeLeftS * 1000);
+      if (languages.length === 0) {
+        return res.status(404).json({ error: `No active translator bridges for ${sessionId}` });
+      }
+      console.warn(`[chaos] Simulated Gemini goAway (${timeLeftS}s) on ${sessionId} for: ${languages.join(', ')}`);
+      return res.json({ success: true, scenario, languages });
+    }
+
     const kind = SIMULATE_SCENARIOS[scenario];
     if (kind === undefined) {
       return res.status(400).json({
         error: `Unknown scenario '${scenario}'`,
-        available: Object.keys(SIMULATE_SCENARIOS),
+        available: [...Object.keys(SIMULATE_SCENARIOS), 'geminiGoAway'],
       });
     }
 
-    const manager = TranslationSessionManager.getInstance();
     const languages = await manager.simulateScenario(sessionId, kind);
     if (languages.length === 0) {
       return res.status(404).json({ error: `No active translator bridges for ${sessionId}` });

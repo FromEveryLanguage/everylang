@@ -25,9 +25,11 @@ import {
   normalizeSourceLanguage,
   writeSourceLanguage,
 } from "../src/liveAudioConfig.ts";
+import { writeLiveAudioProblem } from "../src/liveAudioStatus.ts";
+import type { LiveAudioProblem } from "../src/liveAudioStatus.ts";
 import type { ServerDoc } from "../serverDoc.ts";
 import { TranscriptSegmentLog } from "./transcript-log.ts";
-import { SILENCE_GATING_OFF_DBFS, TranslationBridge } from "./translation-bridge.ts";
+import { SILENCE_GATING_OFF_DBFS, TranslationBridge, classifyGeminiError } from "./translation-bridge.ts";
 import type { BridgeHealth, BridgeStatus } from "./translation-bridge.ts";
 
 /**
@@ -306,6 +308,13 @@ export class TranslationSessionManager {
   // attempt, so a language whose bridge won't start isn't retried every tick.
   private lastStartAttemptAt: Map<string, number> = new Map();
 
+  // Map<`${sessionId}:${language}`, failure> — the last start that failed outright
+  // (all attempts), cleared by the next start that succeeds. A failed bridge is
+  // discarded, so without this nothing would remember *why* a language is missing.
+  private startFailures: Map<string, { message: string; at: number }> = new Map();
+  // Map<sessionId, summary> — the problem last filed in each doc ("" = none).
+  private publishedProblems: Map<string, string> = new Map();
+
   // How a session doc gets opened — the manager's whole dependency on Y-Sweet. The
   // server hands over `connectServerDoc` bound to its DocumentManager; tests hand over
   // a plain local Y.Doc and read back what the manager wrote. Omitted, the manager
@@ -550,6 +559,7 @@ export class TranslationSessionManager {
 
       try {
         await bridge.start();
+        this.startFailures.delete(`${sessionId}:${targetLanguage}`);
         return bridge;
       } catch (error) {
         lastError = error;
@@ -564,7 +574,54 @@ export class TranslationSessionManager {
         }
       }
     }
-    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    const failure = lastError instanceof Error ? lastError : new Error(String(lastError));
+    this.startFailures.set(`${sessionId}:${targetLanguage}`, { message: failure.message, at: Date.now() });
+    throw failure;
+  }
+
+  /**
+   * What's wrong with this session's live audio right now, for /status: a language
+   * that won't start, else a running bridge stuck on a Gemini error. Null when healthy.
+   */
+  private liveAudioProblem(sessionId: string): LiveAudioProblem | null {
+    for (const [key, f] of this.startFailures) {
+      if (!key.startsWith(`${sessionId}:`)) continue;
+      // Bridge start errors carry Gemini's close reason inside a longer message.
+      const message = f.message.match(/reason=(.+)$/s)?.[1] ?? f.message;
+      return {
+        kind: classifyGeminiError(f.message),
+        language: key.slice(sessionId.length + 1),
+        message,
+        at: f.at,
+      };
+    }
+    for (const [language, bridge] of this.translations.get(sessionId) ?? []) {
+      const err = bridge.health().lastGeminiError;
+      if (err) {
+        return { kind: err.kind, language, message: err.reason || `Gemini closed with code ${err.code}`, at: err.at };
+      }
+    }
+    return null;
+  }
+
+  /** File the session's live-audio problem in its doc (or clear it). See liveAudioStatus.ts. */
+  private publishLiveAudioProblem(sessionId: string): void {
+    const problem = this.liveAudioProblem(sessionId);
+    // Nothing to report and no doc open: don't open one just to write "fine".
+    if (!problem && !this.docs.has(sessionId)) return;
+    // Every tick recomputes this; only a change is worth a log line or a doc write.
+    const summary = problem ? `${problem.language} ${problem.kind}: ${problem.message}` : "";
+    if ((this.publishedProblems.get(sessionId) ?? "") === summary) return;
+    this.publishedProblems.set(sessionId, summary);
+    if (problem) console.warn(`[SessionManager] Live-audio problem in ${sessionId} (${summary})`);
+    else console.log(`[SessionManager] Live-audio problem in ${sessionId} cleared`);
+    const entry = this.getOrCreateDoc(sessionId);
+    if (!entry) return;
+    void entry.synced
+      .then(() => writeLiveAudioProblem(entry.doc, problem))
+      .catch((e) => {
+        console.warn(`[SessionManager] Publishing live-audio status for ${sessionId} failed:`, e);
+      });
   }
 
   getActiveTranslations(sessionId: string): TranslationInfo[] {
@@ -604,6 +661,16 @@ export class TranslationSessionManager {
     return fired;
   }
 
+  /** Simulate a Gemini goAway on a session's bridges. **Testing only**, like simulateScenario. */
+  simulateGoAway(sessionId: string, timeLeftMs?: number): string[] {
+    const fired: string[] = [];
+    for (const [language, bridge] of this.translations.get(sessionId) ?? []) {
+      bridge.simulateGoAway(timeLeftMs);
+      fired.push(language);
+    }
+    return fired;
+  }
+
   /** Stop every bridge for a session and close its doc connection. */
   private async teardownSession(sessionId: string): Promise<void> {
     const languageMap = this.translations.get(sessionId);
@@ -625,6 +692,10 @@ export class TranslationSessionManager {
     this.sourceLanguages.delete(sessionId);
     for (const key of [...this.lastStartAttemptAt.keys()]) {
       if (key.startsWith(`${sessionId}:`)) this.lastStartAttemptAt.delete(key);
+    }
+    this.publishedProblems.delete(sessionId);
+    for (const key of [...this.startFailures.keys()]) {
+      if (key.startsWith(`${sessionId}:`)) this.startFailures.delete(key);
     }
   }
 
@@ -767,6 +838,8 @@ export class TranslationSessionManager {
         (p) => p.attributes?.[LISTEN_ATTRIBUTE] === language
       ).length;
     }
+
+    this.publishLiveAudioProblem(sessionId);
 
     // Session-level wind-down: nothing running, nothing wanted, nobody present.
     if (
