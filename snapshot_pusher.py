@@ -164,15 +164,21 @@ class HttpSnapshotPusher:
         last_key: Optional[str] = None
         last_sent = float('-inf')
         backoff = self.timing.backoff_initial
+        # A failure delays the next *send*, never the next *poll*: the feed may be wrapped in
+        # a recorder (``--record``), and a server refusing the write key must not leave holes
+        # in the recording. When the retry comes due it sends whatever is current by then.
+        retry_at = float('-inf')
         while True:
             snap = await self.feed.poll()
             key = _content_key(snap)
             now = anyio.current_time()
-            if key != last_key or now - last_sent >= self.timing.heartbeat_interval:
+            due = key != last_key or now - last_sent >= self.timing.heartbeat_interval
+            if due and now >= retry_at:
                 try:
                     await self.push(snap)
                     last_key, last_sent = key, now
                     backoff = self.timing.backoff_initial
+                    retry_at = float('-inf')
                 except (httpx.HTTPError, ValueError) as e:
                     detail = (
                         f"HTTP {e.response.status_code}" if isinstance(e, httpx.HTTPStatusError)
@@ -181,15 +187,13 @@ class HttpSnapshotPusher:
                     if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 401:
                         detail += " — the server refused this machine's write key"
                     logger.warning(f"Could not send snapshot ({detail}); retrying in {backoff:.0f}s")
-                    await anyio.sleep(backoff)
+                    retry_at = anyio.current_time() + backoff
                     backoff = min(backoff * 2, self.timing.backoff_max)
-                    continue
                 except Exception as e:  # never let one bad cycle end the service
                     logger.error(f"Unexpected error sending snapshot: {e}", exc_info=True)
                     self._report_exception(e)
-                    await anyio.sleep(backoff)
+                    retry_at = anyio.current_time() + backoff
                     backoff = min(backoff * 2, self.timing.backoff_max)
-                    continue
             await anyio.sleep(
                 self.timing.poll_interval if snap.on_air else self.timing.poll_interval_off_air
             )

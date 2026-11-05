@@ -169,3 +169,33 @@ async def test_logs_being_overtaken_only_when_on_air(caplog):
         await pusher.push(on_air_snap(slide=0))
         await pusher.push(on_air_snap(slide=1))
     assert caplog.text.count("laptop@laptop went on air after this machine") == 1
+
+
+async def test_keeps_polling_the_feed_while_backing_off():
+    """A refused POST delays the next *send*, not the next *poll*: ``--record`` wraps the
+    feed, so a server refusing the write key must not leave holes in the recording."""
+
+    class CountingFeed(FakeFeed):
+        polls = 0
+
+        async def poll(self):
+            CountingFeed.polls += 1
+            return await super().poll()
+
+    async def refuse(url, body, headers):
+        request = httpx.Request("POST", url)
+        raise httpx.HTTPStatusError("401", request=request, response=httpx.Response(401, request=request))
+
+    timing = PusherTiming(**{**FAST.__dict__, "backoff_initial": 10.0, "backoff_max": 10.0})
+    feed = CountingFeed([with_seq(on_air_snap(slide=i % 2), i) for i in range(1000)])
+    await run_for(HttpSnapshotPusher(feed, "http://s", timing=timing, post=refuse))
+    assert CountingFeed.polls > 5
+
+
+async def test_after_an_outage_the_latest_state_is_sent():
+    server = FakeServer(fail_first=1)
+    timing = PusherTiming(**{**FAST.__dict__, "backoff_initial": 0.02, "backoff_max": 0.02})
+    snaps = [on_air_snap(slide=0), on_air_snap(slide=1)]
+    await run_for(HttpSnapshotPusher(FakeFeed(snaps), "http://s", timing=timing, post=server), 0.1)
+    # Slide 0 was refused; by the retry the feed had moved on, so slide 1 is what goes out.
+    assert [b["snapshot"]["activeSlideIndex"] for b in server.bodies] == [1]
