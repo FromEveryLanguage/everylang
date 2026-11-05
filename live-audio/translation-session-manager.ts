@@ -312,6 +312,7 @@ export class TranslationSessionManager {
   // supervises bridges and writes to no doc at all.
   private docFactory: ((docId: string) => ServerDoc) | null = null;
   private livekitConfig: LiveKitConfig | null = null;
+  private geminiApiKey: string = '';
   private telemetry: TelemetryClient | null = null;
   private directory: RoomDirectory | null = null;
   private bridgeFactory: typeof defaultBridgeFactory = defaultBridgeFactory;
@@ -343,6 +344,7 @@ export class TranslationSessionManager {
    */
   init(opts: {
     livekit: LiveKitConfig;
+    geminiApiKey?: string;
     telemetry?: TelemetryClient;
     silenceThresholdDbfs?: number;
     defaultSourceLanguage?: string;
@@ -352,6 +354,7 @@ export class TranslationSessionManager {
   }): void {
     this.docFactory = opts.docFactory ?? null;
     this.livekitConfig = opts.livekit;
+    this.geminiApiKey = opts.geminiApiKey ?? '';
     this.telemetry = opts.telemetry ?? null;
     this.silenceThresholdDbfs = opts.silenceThresholdDbfs ?? SILENCE_GATING_OFF_DBFS;
     this.defaultSourceLanguage = normalizeSourceLanguage(opts.defaultSourceLanguage);
@@ -528,10 +531,10 @@ export class TranslationSessionManager {
       : null;
 
     const config = {
-      geminiApiKey: process.env.GEMINI_API_KEY!,
-      livekitUrl: this.livekitConfig?.url ?? process.env.LIVEKIT_URL ?? process.env.NEXT_PUBLIC_LIVEKIT_URL ?? "ws://localhost:7880",
-      livekitApiKey: this.livekitConfig?.apiKey ?? process.env.LIVEKIT_API_KEY!,
-      livekitApiSecret: this.livekitConfig?.apiSecret ?? process.env.LIVEKIT_API_SECRET!,
+      geminiApiKey: this.geminiApiKey,
+      livekitUrl: this.livekitConfig?.url ?? '',
+      livekitApiKey: this.livekitConfig?.apiKey ?? '',
+      livekitApiSecret: this.livekitConfig?.apiSecret ?? '',
       transcript,
       writesSourceTranscript: targetLanguage === this.primaryTargetFor(sessionId),
       sourceLanguage: this.getSourceLanguage(sessionId),

@@ -12,6 +12,8 @@
     "preview": "vite preview",
     "dev:server": "node server.ts",
     "dev:ysweet": "npx y-sweet@0.9.1 serve ./ysweet_data --port 5007",
+    "env:generate": "node scripts/generate-env-template.ts",
+    "env:check": "node scripts/generate-env-template.ts && git diff --exit-code -- template-.env",
     "test": "vitest"
   },
   "dependencies": {
