@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
 import { readSourceLanguage } from "../src/liveAudioConfig.ts";
+import { LIVE_AUDIO_STATUS_KEY } from "../src/liveAudioStatus.ts";
 import type { ServerDoc } from "../serverDoc.ts";
 
 import {
@@ -196,6 +197,8 @@ describe("planRoomActions", () => {
 type BridgeConfig = ConstructorParameters<typeof TranslationBridge>[3];
 
 class FakeBridge {
+  /** When set, every start() throws this — Gemini refusing the connection. */
+  static startError: Error | null = null;
   status: BridgeStatus = "starting";
   subscriberCount = 0;
   readonly identity: string;
@@ -215,6 +218,10 @@ class FakeBridge {
     this.identity = `translator-${targetLanguage}`;
   }
   async start(): Promise<void> {
+    if (FakeBridge.startError) {
+      this.status = "error";
+      throw FakeBridge.startError;
+    }
     this.status = "active";
   }
   async stop(): Promise<void> {
@@ -228,6 +235,7 @@ class FakeBridge {
       lastOutputFrameAt: 0,
       reconnects: 0,
       bufferedFrames: 0,
+      lastGeminiError: null,
     };
   }
   async simulateScenario(): Promise<void> {}
@@ -386,6 +394,36 @@ describe("TranslationSessionManager supervisor", () => {
     rooms.set("doc-1", [organizer, listener("a", "es")]);
     await manager.reconcileAll();
     expect(runningLanguages(manager, "doc-1")).toEqual(["es", "fr"]);
+  });
+
+  it("files a Gemini billing refusal in the session's status, and clears it on recovery", async () => {
+    // 2026-10-25: credits ran out mid-service and every start was refused for 27
+    // minutes, visible only in a server log. The doc entry is what /status shows.
+    const { manager, docs } = makeManager(new Map([["doc-1", [organizer]]]));
+    FakeBridge.startError = new Error(
+      "Gemini WebSocket closed before setup: code=1011 reason=Your prepayment credits are depleted."
+    );
+    try {
+      const tick = manager.reconcileAll();
+      await vi.advanceTimersByTimeAsync(5_000); // ensureBridge's retry pauses
+      await tick;
+      await flushWrites();
+      expect(docs.get("doc-1")!.getMap("status").get(LIVE_AUDIO_STATUS_KEY)).toMatchObject({
+        kind: "billing",
+        language: "fr",
+        message: "Your prepayment credits are depleted.",
+      });
+
+      // Credits topped up: the next start succeeds and the alarm goes away.
+      FakeBridge.startError = null;
+      await vi.advanceTimersByTimeAsync(31_000);
+      await manager.reconcileAll();
+      await flushWrites();
+      expect(runningLanguages(manager, "doc-1")).toEqual(["fr"]);
+      expect(docs.get("doc-1")!.getMap("status").has(LIVE_AUDIO_STATUS_KEY)).toBe(false);
+    } finally {
+      FakeBridge.startError = null;
+    }
   });
 
   it("recreates a bridge that failed while demand persists", async () => {

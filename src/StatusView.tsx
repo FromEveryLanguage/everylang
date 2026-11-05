@@ -6,6 +6,7 @@ import { TranscriptHealth } from './TranscriptHealth';
 import { getWriteKey, maskWriteKey, setWriteKey } from './writeKey';
 import { clearSessionPin, fetchSessionWriters, pinSession, type WriterSighting } from './sessionApi';
 import type { CurrentSession } from './sessionCurrent';
+import { readLiveAudioProblem } from './liveAudioStatus';
 
 /**
  * Session status / admin page.
@@ -314,6 +315,7 @@ export function StatusView({
   const exportHref = `/api/session/export?doc=${encodeURIComponent(docId)}`;
   const reportingCount = Object.keys(statusEntries).length;
   const proclaim = readProclaimServiceStatus(statusEntries);
+  const liveAudioProblem = readLiveAudioProblem(statusEntries);
 
   const sectionClass = SECTION_CLASS;
   const sectionTitleClass = SECTION_TITLE_CLASS;
@@ -340,7 +342,12 @@ export function StatusView({
               // announces the version it's running and whether the release branch has
               // moved on. Everything else stays a placeholder until #72 wires it.
               const version = name === 'Proclaim service' ? proclaim : null;
-              const dotClass = version
+              // The bridges report only trouble (src/liveAudioStatus.ts): a problem
+              // turns the tile red; no entry leaves it as it was.
+              const problem = name === 'Live-audio bridges' ? liveAudioProblem : null;
+              const dotClass = problem
+                ? 'bg-red-500'
+                : version
                 ? version.updatePending
                   ? 'bg-amber-500'
                   : 'bg-green-500'
@@ -353,7 +360,19 @@ export function StatusView({
                   <span className={`inline-block w-2.5 h-2.5 rounded-full ${dotClass}`} />
                   <div className="flex flex-col">
                     <span className="text-sm font-medium">{name}</span>
-                    {version ? (
+                    {problem ? (
+                      <>
+                        <span className="text-xs font-medium text-red-700 dark:text-red-400">
+                          {problem.kind === 'billing' ? s.statusLiveAudioBilling : s.statusLiveAudioError}
+                          {' · '}
+                          {problem.language}
+                          {problem.at ? ` · ${new Date(problem.at).toLocaleTimeString()}` : ''}
+                        </span>
+                        <span className="text-xs text-gray-600 dark:text-gray-300 break-words">
+                          {problem.message}
+                        </span>
+                      </>
+                    ) : version ? (
                       <>
                         <code className="text-xs text-gray-500 dark:text-gray-400">
                           {[version.gitShaShort, version.gitBranch].filter(Boolean).join(' · ')}

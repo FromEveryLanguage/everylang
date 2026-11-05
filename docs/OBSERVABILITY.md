@@ -60,7 +60,20 @@ supervisor start/stop decision.
 | `gemini_input_dropped` | Input lost because the buffer overflowed (long outage). | `frames` — genuine loss |
 | `gemini_suspended_silence` | Cost path: socket torn down after sustained silence. | `silentMs`, `framesSent/Received` |
 | `gemini_resumed_voice` | Cost path: socket reopened on returning speech. | `silentMs` |
-| `gemini_session_resumption_update` | Whether the translate model offered a resume handle (not yet used). | `resumable`, `hasHandle` |
+| `gemini_swapped` | Input moved to a replacement socket after a goAway (or reconnect). | `trigger`, `at` (`pause`\|`deadline`\|`old_closed`\|`immediate`), `waitedMs` — **mostly `deadline` means the pause bar doesn't fit this feed; see `input_level_summary`** |
+| `gemini_drain_ended` | The retired socket was closed after finishing its last words. | `reason` (`replacement_audio` is the normal one), `drainMs`, `audioChunks` recovered |
+| `input_level_summary` | Once a minute, primary bridge only: the spread of input levels. | `p10`/`p50`/`p90` dBFS, `belowPausePct` — the data for setting `LIVE_AUDIO_SILENCE_THRESHOLD_DBFS` |
+
+The translate model also sends `sessionResumptionUpdate` about once a second. It is
+deliberately ignored: [gemini-swap-probe.ts](../live-audio/gemini-swap-probe.ts) found a
+resumed session spoke *later* than a fresh one and repeated words the old one had already
+said (the reasoning is with `SWAP_PAUSE_DBFS` in the bridge). Rerun the probe if the model
+changes.
+
+A Gemini refusal that won't clear by itself (start failures, or a running bridge stuck on
+an abnormal close) is also filed in the session doc as `status.liveAudio`
+([src/liveAudioStatus.ts](../src/liveAudioStatus.ts)), which turns the live-audio tile on
+`/status` red with Gemini's own message — `billing` for credits/quota.
 
 Server-level exceptions reach PostHog two ways, both wired in [server.ts](../server.ts):
 
