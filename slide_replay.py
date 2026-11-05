@@ -8,9 +8,9 @@ harness, and the basis for a consumer regression test.
 
 Two roles share one dead-simple on-disk format (JSONL, one record per line):
 
-- ``RecordingSlideFeed`` wraps a live feed and appends each polled snapshot; drop it in via
-  ``proclaim_service.py --record PATH`` during a live service. It changes nothing the consumers
-  see — the same snapshot is returned unmodified.
+- ``RecordingSlideFeed`` wraps a live feed and appends each polled snapshot that differs from
+  the last one written; drop it in via ``proclaim_service.py --record PATH`` during a live
+  service. It changes nothing the consumers see — the same snapshot is returned unmodified.
 - ``ReplaySlideFeed`` re-emits a recorded stream *as* a ``SlideFeed``, honoring the recorded
   inter-snapshot timing (scaled), so the ordinary pusher can replay a fixture against a real
   server unchanged (``proclaim_service.py --replay PATH``).
@@ -25,6 +25,13 @@ Record line schema (one JSON object per line)::
 ``ts`` is the wall-clock time the snapshot was produced. Only inter-record *deltas* matter on
 replay (absolute times are normalized to the first record), matching issue #70's "timestamps
 recorded absolute, normalized to service-relative on replay."
+
+A line is written only when the snapshot changes (``content_key``: everything but ``seq``).
+Every snapshot carries the whole service — ~30 KB for a real one — and most polls repeat the
+last, so writing every poll made recordings grow by megabytes for a few slide changes. A record
+therefore means "this became the state at ``ts``, and stayed until the next record". The cost
+is that a recording no longer shows how long the state held *after its last line*, so a replay
+ends at the last change rather than when the recording stopped.
 
 Like ``slide_feed``, this module is dependency-light and has **no import-time side effects**,
 so it imports cleanly in tests without a configured environment.
@@ -49,7 +56,7 @@ from typing import (
 
 import anyio
 
-from slide_feed import FeedSnapshot, SessionInfo, SlideFeed
+from slide_feed import FeedSnapshot, SessionInfo, SlideFeed, content_key
 
 logger = logging.getLogger(__name__)
 
@@ -95,8 +102,9 @@ def write_records(path: PathLike, records: List[SnapshotRecord]) -> None:
 class RecordingSlideFeed:
     """A ``SlideFeed`` that transparently records every snapshot the wrapped feed produces.
 
-    Delegates ``poll``/``reset`` to the inner feed and appends the polled snapshot to a JSONL
-    file as a side effect. The file is opened lazily on first poll, in append mode, and flushed
+    Delegates ``poll``/``reset`` to the inner feed and, as a side effect, appends the polled
+    snapshot to a JSONL file when it differs from the last one written. Each recorder writes its
+    first poll whatever the file already holds, so a restart is visible in the recording. The file is opened lazily on first poll, in append mode, and flushed
     per line, so a recording survives a crash and can be tailed live. A write failure is logged
     and swallowed — recording must never take the live service down.
     """
@@ -112,6 +120,7 @@ class RecordingSlideFeed:
         self._path = Path(path)
         self._clock = clock
         self._file: Optional[Any] = None
+        self._last_key: Optional[str] = None
 
     def _ensure_open(self) -> Any:
         if self._file is None:
@@ -122,10 +131,14 @@ class RecordingSlideFeed:
 
     async def poll(self) -> FeedSnapshot:
         snap = await self._feed.poll()
+        key = content_key(snap)
+        if key == self._last_key:
+            return snap
         try:
             f = self._ensure_open()
             f.write(SnapshotRecord(self._clock(), snap).to_json_line() + '\n')
             f.flush()
+            self._last_key = key
         except OSError as e:
             logger.warning(f"Failed to record snapshot (continuing live): {e}")
         return snap
@@ -152,7 +165,13 @@ class ReplaySlideFeed:
     real Y-Sweet reproduces the original slide-change cadence; ``time_scale=0`` replays as fast
     as possible (used by tests). When the stream is exhausted it reports off air — the natural
     "service ended" — and it keeps returning off air
-    thereafter. ``reset`` is a no-op: a replay is a fixed stream, not a live source with caches.
+    thereafter.
+
+    A recording holds only changes, so the gap to the next record can be minutes. ``poll``
+    waits at most ``max_wait`` (real seconds) and, if the next record is still not due, returns
+    the current snapshot again. Blocking for the whole gap would starve the pusher's heartbeat,
+    and the server stops following a sender it has not heard from in ``SOURCE_SILENCE_MS``
+    (``slideSync.ts``). ``max_wait=None`` waits out the whole gap. ``reset`` is a no-op: a replay is a fixed stream, not a live source with caches.
 
     ``clock``/``sleep`` are injectable so timing can be driven deterministically in tests.
     """
@@ -162,11 +181,13 @@ class ReplaySlideFeed:
         records: List[SnapshotRecord],
         *,
         time_scale: float = 1.0,
+        max_wait: Optional[float] = 5.0,
         clock: Callable[[], float] = anyio.current_time,
         sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     ):
         self._records = list(records)
         self._time_scale = time_scale
+        self._max_wait = max_wait
         self._clock = clock
         self._sleep = sleep
         self._index = 0
@@ -186,6 +207,9 @@ class ReplaySlideFeed:
         elapsed = self._clock() - self._start_mono
         delay = target_offset - elapsed
         if delay > 0:
+            if self._max_wait is not None and delay > self._max_wait and self._index > 0:
+                await self._sleep(self._max_wait)
+                return self._records[self._index - 1].snapshot
             await self._sleep(delay)
 
         self._index += 1

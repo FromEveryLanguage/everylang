@@ -70,6 +70,38 @@ async def test_recording_feed_appends_across_reopen(tmp_path):
     assert [r.snapshot.active_item_id for r in records] == ['a', 'b']
 
 
+async def test_recording_feed_writes_only_changes(tmp_path):
+    """An unchanged poll writes nothing; ``seq`` alone moving is not a change."""
+    a0, a1 = on_air_snap(item='a', slide=0), on_air_snap(item='a', slide=1)
+    a0_again = FeedSnapshot.from_json({**a0.to_json(), 'seq': a0.seq + 7})
+    inner = FakeFeed([a0, a0_again, a0, a1, a1, a0])
+    path = tmp_path / 'rec.jsonl'
+    now = [0.0]
+    feed = RecordingSlideFeed(inner, path, clock=lambda: now[0])
+
+    returned = []
+    for t in range(6):
+        now[0] = float(t)
+        returned.append(await feed.poll())
+    feed.close()
+
+    # Still transparent: every poll comes back, including the ones not written.
+    assert [s.to_json() for s in returned] == [s.to_json() for s in [a0, a0_again, a0, a1, a1, a0]]
+    records = load_records(path)
+    assert [(r.ts, r.snapshot.active_slide_index) for r in records] == [(0.0, 0), (3.0, 1), (5.0, 0)]
+
+
+async def test_recording_feed_writes_first_poll_after_reopen(tmp_path):
+    """A restarted recorder writes its first snapshot even if the file ends with the same one."""
+    path = tmp_path / 'rec.jsonl'
+    for ts in (1.0, 2.0):
+        feed = RecordingSlideFeed(FakeFeed([on_air_snap(item='a')]), path, clock=lambda: ts)
+        await feed.poll()
+        feed.close()
+
+    assert [r.ts for r in load_records(path)] == [1.0, 2.0]
+
+
 # -- ReplaySlideFeed -----------------------------------------------------------
 
 
@@ -89,7 +121,9 @@ async def test_replay_feed_honors_scaled_timing():
     async def fake_sleep(d):
         slept.append(d)
 
-    feed = ReplaySlideFeed(records, time_scale=2.0, clock=lambda: 1000.0, sleep=fake_sleep)
+    feed = ReplaySlideFeed(
+        records, time_scale=2.0, max_wait=None, clock=lambda: 1000.0, sleep=fake_sleep
+    )
 
     first = await feed.poll()
     second = await feed.poll()
@@ -100,6 +134,28 @@ async def test_replay_feed_honors_scaled_timing():
     assert third.active_item_id == 'b'
     # Deltas 3s and 4s from the first record, scaled ×2 (clock is frozen so no elapsed offset).
     assert slept == [6.0, 8.0]
+
+
+async def test_replay_feed_repeats_current_snapshot_through_a_long_gap():
+    """A gap longer than ``max_wait`` is waited out in steps, re-emitting the current
+    snapshot, so the pusher keeps heartbeating through a quiet stretch of a recording."""
+    records = [
+        _rec(100.0, on_air_snap(item='a', slide=0)),
+        _rec(112.0, on_air_snap(item='a', slide=1)),
+    ]
+    now = [0.0]
+    slept = []
+
+    async def fake_sleep(d):
+        slept.append(d)
+        now[0] += d
+
+    feed = ReplaySlideFeed(records, max_wait=5.0, clock=lambda: now[0], sleep=fake_sleep)
+
+    slides = [(await feed.poll()).active_slide_index for _ in range(4)]
+
+    assert slides == [0, 0, 0, 1]
+    assert slept == [5.0, 5.0, 2.0]
 
 
 async def test_replay_feed_reports_off_air_when_exhausted():

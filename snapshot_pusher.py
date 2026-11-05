@@ -18,7 +18,6 @@ being followed. Both are logged when they change; neither changes what this loop
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from dataclasses import dataclass
@@ -28,7 +27,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 import anyio
 import httpx
 
-from slide_feed import FeedSnapshot, SlideFeed
+from slide_feed import FeedSnapshot, SlideFeed, content_key
 from write_key import write_key_headers
 
 logger = logging.getLogger(__name__)
@@ -46,12 +45,6 @@ class PusherTiming:
     backoff_max: float = 30.0
     request_timeout: float = 15.0
 
-
-def _content_key(snap: FeedSnapshot) -> str:
-    """What makes two snapshots "the same" for sending purposes: everything but ``seq``."""
-    body = snap.to_json()
-    body.pop('seq', None)
-    return json.dumps(body, sort_keys=True)
 
 
 class HttpSnapshotPusher:
@@ -170,7 +163,7 @@ class HttpSnapshotPusher:
         retry_at = float('-inf')
         while True:
             snap = await self.feed.poll()
-            key = _content_key(snap)
+            key = content_key(snap)
             now = anyio.current_time()
             due = key != last_key or now - last_sent >= self.timing.heartbeat_interval
             if due and now >= retry_at:
