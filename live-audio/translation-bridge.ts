@@ -694,6 +694,19 @@ export class TranslationBridge {
     await this.room.simulateScenario(kind);
   }
 
+  /**
+   * Act as if Gemini had just sent a goAway. **Testing only.** Gemini sends one ~9
+   * minutes into each session, so without this, checking the swap means talking for
+   * nine minutes and watching. The old session isn't actually ending, so everything
+   * after the warning — standby, waiting for a pause, the drain — runs for real.
+   */
+  simulateGoAway(timeLeftMs: number = 50_000): void {
+    if (!this.geminiWs || !this.geminiSetupComplete) throw new Error("No active Gemini session");
+    console.warn(`[TranslationBridge:${this.targetLanguage}] Simulating Gemini goAway (timeLeft ${timeLeftMs}ms)`);
+    this.record("gemini_goaway_simulated", { timeLeftMs });
+    this.processServerContent({ goAway: { timeLeft: `${timeLeftMs / 1000}s` } });
+  }
+
   async stop(): Promise<void> {
     console.log(
       `[TranslationBridge:${this.targetLanguage}] Stopping bridge`

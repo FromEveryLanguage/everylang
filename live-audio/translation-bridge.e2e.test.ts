@@ -1102,6 +1102,16 @@ describe("TranslationBridge (end-to-end, faked LiveKit + Gemini)", () => {
       await bridge.stop();
     });
 
+    it("a simulated goAway (the chaos route) drives the same swap as a real one", async () => {
+      const { bridge, seated: mic, events } = await bootWithEvents();
+      bridge.simulateGoAway(50_000);
+      await vi.advanceTimersByTimeAsync(50);
+      await speak(mic, 3);
+      expect(events.map((e) => e.event)).toContain("gemini_goaway_simulated");
+      expect(events.find((e) => e.event === "gemini_swapped")?.props.at).toBe("pause");
+      await bridge.stop();
+    });
+
     it("swaps at the deadline when the speaker never pauses", async () => {
       const { bridge, seated: mic, events } = await bootWithEvents();
       const [old] = FakeGeminiSocket.instances;

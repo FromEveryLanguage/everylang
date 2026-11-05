@@ -661,6 +661,16 @@ export class TranslationSessionManager {
     return fired;
   }
 
+  /** Simulate a Gemini goAway on a session's bridges. **Testing only**, like simulateScenario. */
+  simulateGoAway(sessionId: string, timeLeftMs?: number): string[] {
+    const fired: string[] = [];
+    for (const [language, bridge] of this.translations.get(sessionId) ?? []) {
+      bridge.simulateGoAway(timeLeftMs);
+      fired.push(language);
+    }
+    return fired;
+  }
+
   /** Stop every bridge for a session and close its doc connection. */
   private async teardownSession(sessionId: string): Promise<void> {
     const languageMap = this.translations.get(sessionId);
