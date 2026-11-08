@@ -13,8 +13,9 @@
  * - **Gemini** periodically terminates the session (duration/context limits, routine
  *   resets). The bridge listens for the `goAway` warning and reconnects
  *   make-before-break — it opens a replacement socket while the old one is still
- *   serving audio, then swaps once the new one is ready. Unexpected closures fall back
- *   to a backoff reconnect. When the overlap fails (the old socket dies before the
+ *   serving audio, holds it ready until the speaker pauses, moves the input over, and
+ *   lets the old socket finish speaking what it already heard (see "Session swaps"
+ *   below). Unexpected closures fall back to a backoff reconnect. When the overlap fails (the old socket dies before the
  *   replacement finishes setup, e.g. a short `goAway` lead time), input frames are
  *   buffered during the gap and flushed into the fresh session on setup, so a swap
  *   costs a little latency on that segment rather than dropped words. The same buffer
@@ -185,11 +186,44 @@ const MAX_GAP_SILENCE_FRAMES = Math.round(300 / INPUT_FRAME_MS);
 
 // A *pause*: at least PAUSE_FRAMES consecutive input frames below PAUSE_DBFS. Looser
 // than the voice bar: it only has to find a gap between words, not prove the room is
-// empty. Nothing acts on it yet. The once-a-minute input level summary counts pauses
-// so a swap timed to land on one can be checked against what the sound board really
-// sends before it ships.
+// empty, and a false positive costs no more than swapping without waiting did. Session
+// swaps wait for one (below); the once-a-minute input level summary counts them, so
+// whether this feed has pauses at this bar can be read from the logs.
 export const PAUSE_DBFS = -40;
 export const PAUSE_FRAMES = Math.round(300 / INPUT_FRAME_MS);
+
+// Session swaps. Gemini ends every translate session at ~10 minutes, with a goAway
+// 50s ahead (every one of 48 in the Oct–Nov 2026 logs said exactly that). Until
+// 2026-11 the bridge swapped the moment the replacement was ready and closed the old
+// socket on the spot, and 47 of those 48 swaps left a 2.2–4.5s hole in the translated
+// audio. live-audio/gemini-swap-probe.ts reproduced it offline and split it in two:
+//
+//   1. The old session speaks ~1.5s behind its input, so closing it at the swap threw
+//      away the translation of the last words it heard. Fix: *drain*. Stop feeding it,
+//      keep publishing what it still says, and close it when the replacement starts
+//      speaking (or after MAX_DRAIN_MS).
+//   2. A fresh session needs ~3s before its first audio, versus ~1.5s steady-state, so
+//      even a perfect hand-off leaves ~1.5–2s of quiet. That can't be removed, only
+//      placed: hold the ready replacement as a *standby* and move the input over at
+//      the speaker's next pause (PAUSE_DBFS), where the extra quiet reads as a slightly
+//      longer breath rather than a hole mid-sentence. Swapping mid-word also costs that
+//      word outright (each session hears half of it), which a pause avoids.
+//
+// Session resumption was probed too and is *not* used: the translate model accepts a
+// handle, but the resumed session spoke later (+3.8s) and re-translated words the old
+// session had already said.
+//
+// The deadline leaves the old session time to drain before Gemini ends it.
+const SWAP_DEADLINE_MARGIN_MS = 10_000;
+const MAX_STANDBY_MS = 40_000;
+const MAX_DRAIN_MS = 6_000;
+
+// "Starts speaking" for ending a drain means *voiced* output. The translate model
+// streams silent audio chunks too, and the first chunk a fresh session sends may be
+// one of those: ending the drain on it would close the old session before its last
+// words were out, which is the hole the drain exists to fill. The bar is the one the
+// probe used to tell voiced chunks from silent ones.
+const VOICED_OUTPUT_DBFS = -45;
 
 // The primary bridge logs a summary of its input level once a minute, so the voice
 // bar (LIVE_AUDIO_SILENCE_THRESHOLD_DBFS) and PAUSE_DBFS can be set from the levels
@@ -211,6 +245,14 @@ export function frameRmsDbfs(data: Int16Array): number {
   const rms = Math.sqrt(sumSquares / data.length);
   if (rms === 0) return -Infinity;
   return 20 * Math.log10(rms / 32768);
+}
+
+/** Level of a base64 PCM16 chunk from Gemini, in dBFS (see frameRmsDbfs). */
+export function base64PcmDbfs(base64: string): number {
+  const buf = Buffer.from(base64, "base64");
+  // Copied rather than viewed: a pooled Buffer's offset needn't be 2-byte aligned.
+  const samples = new Int16Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + (buf.byteLength & ~1)));
+  return frameRmsDbfs(samples);
 }
 
 /**
@@ -504,6 +546,25 @@ export class TranslationBridge {
   // teardown, a stale setup) and ones Gemini warned about with a goAway. Their close
   // frames aren't errors, whatever code and reason Gemini puts on them.
   private expectedClose = new WeakSet<WebSocket>();
+
+  // Session swaps (see "Session swaps" up top). A replacement socket moves through
+  // three roles: `pendingWs` (setting up) → `standbyWs` (ready, waiting for a pause) →
+  // `geminiWs` (taking input). The socket it replaced becomes `drainingWs`: no input,
+  // but its remaining output is still published until the new one starts speaking.
+  private standbyWs: WebSocket | null = null;
+  private standbyTrigger: ReconnectTrigger = "goaway";
+  private standbyReadyAt: number = 0;
+  private standbyTimer: ReturnType<typeof setTimeout> | null = null;
+  private drainingWs: WebSocket | null = null;
+  private drainStartedAt: number = 0;
+  private drainFrames: number = 0;
+  // The replacement's silent chunks held back during a drain (see VOICED_OUTPUT_DBFS).
+  private drainSilentSkipped: number = 0;
+  private drainTimer: ReturnType<typeof setTimeout> | null = null;
+  // When the current session's goAway says it will be cut off (0 = no goAway yet).
+  private goAwayDeadlineAt: number = 0;
+  // Consecutive input frames below PAUSE_DBFS.
+  private quietFrames: number = 0;
   // Input levels since the last summary (primary bridge only).
   private levelWindow: number[] = [];
   private levelWindowStartedAt: number = 0;
@@ -671,6 +732,19 @@ export class TranslationBridge {
     await this.room.simulateScenario(kind);
   }
 
+  /**
+   * Act as if Gemini had just sent a goAway. **Testing only.** Gemini sends one ~9
+   * minutes into each session, so without this, checking the swap means talking for
+   * nine minutes and watching. The old session isn't actually ending, so everything
+   * after the warning (standby, waiting for a pause, the drain) runs for real.
+   */
+  simulateGoAway(timeLeftMs: number = 50_000): void {
+    if (!this.geminiWs || !this.geminiSetupComplete) throw new Error("No active Gemini session");
+    console.warn(`[TranslationBridge:${this.targetLanguage}] Simulating Gemini goAway (timeLeft ${timeLeftMs}ms)`);
+    this.record("gemini_goaway_simulated", { timeLeftMs });
+    this.processServerContent({ goAway: { timeLeft: `${timeLeftMs / 1000}s` } });
+  }
+
   async stop(): Promise<void> {
     console.log(
       `[TranslationBridge:${this.targetLanguage}] Stopping bridge`
@@ -719,6 +793,9 @@ export class TranslationBridge {
       this.closeSocket(this.pendingWs);
       this.pendingWs = null;
     }
+    this.dropStandby();
+    this.endDrain("teardown");
+    this.goAwayDeadlineAt = 0;
     if (this.geminiWs) {
       this.closeSocket(this.geminiWs);
       this.geminiWs = null;
@@ -970,7 +1047,13 @@ export class TranslationBridge {
         return;
       }
 
-      // Only the active socket's content drives audio/transcript output.
+      // A retired socket still finishing its last words: publish them, nothing else.
+      if (ws === this.drainingWs) {
+        this.handleContent(message, { draining: true });
+        return;
+      }
+      // Otherwise only the active socket's content drives audio/transcript output.
+      // (A standby has had no input, so it has nothing to say yet.)
       if (ws !== this.geminiWs) return;
       this.processServerContent(message);
     });
@@ -1007,6 +1090,11 @@ export class TranslationBridge {
       if (!this.expectedClose.has(ws)) {
         this.lastGeminiError = { code, reason: reasonStr, at: Date.now(), kind: classifyGeminiError(reasonStr) };
       }
+      // A draining socket ending is the normal end of a drain, whoever closed it.
+      if (ws === this.drainingWs) {
+        this.endDrain("closed");
+        return;
+      }
 
       if (opts.role === "initial" && !ready) {
         opts.onInitialError?.(
@@ -1020,14 +1108,20 @@ export class TranslationBridge {
       if (this.status !== "active" || this.suspended) return;
 
       if (wasActive) {
-        // The live session died (with or without a goAway). Stop sending audio to
-        // the dead socket and reconnect (no-op if a goAway replacement is already
-        // in flight).
+        // The live session died (with or without a goAway). If a replacement is
+        // already ready, it takes over now: the pause never came in time. Otherwise
+        // stop sending audio to the dead socket and reconnect (no-op if a goAway
+        // replacement is already in flight).
         this.geminiSetupComplete = false;
+        if (this.standbyWs) {
+          this.promoteStandby("old_closed");
+          return;
+        }
         this.beginReconnect("close");
-      } else if (wasPending) {
+      } else if (wasPending || ws === this.standbyWs) {
         // A replacement died before it could take over — retry with backoff,
         // keeping `reconnecting` set so we don't also start a parallel attempt.
+        if (ws === this.standbyWs) this.dropStandby();
         this.pendingWs = null;
         const attempt = (opts.attempt ?? 0) + 1;
         const trigger = opts.trigger ?? "close";
@@ -1051,21 +1145,39 @@ export class TranslationBridge {
     this.lastGeminiError = null;
 
     if (role === "pending") {
-      const old = this.geminiWs;
-      this.geminiWs = ws;
       this.pendingWs = null;
-      this.reconnecting = false;
-      this.reconnectCount++;
-      if (old && old !== ws) this.closeSocket(old);
-      console.log(
-        `[TranslationBridge:${this.targetLanguage}] Gemini reconnect setup complete — swapped in (trigger=${trigger}, total=${this.reconnectCount})`
-      );
       this.record("gemini_session_setup_complete", {
         isReconnect: true,
         trigger,
         totalReconnects: this.reconnectCount,
         setupLatencyMs,
       });
+      // The old session is still serving and Gemini said how long it has left: hold
+      // the replacement until the speaker pauses, or until the deadline.
+      const old = this.geminiWs;
+      const waitMs = Math.min(
+        MAX_STANDBY_MS,
+        this.goAwayDeadlineAt - SWAP_DEADLINE_MARGIN_MS - Date.now()
+      );
+      if (
+        trigger === "goaway" &&
+        old &&
+        old !== ws &&
+        old.readyState === WebSocket.OPEN &&
+        this.goAwayDeadlineAt > 0 &&
+        waitMs > 0
+      ) {
+        this.standbyWs = ws;
+        this.standbyTrigger = trigger;
+        this.standbyReadyAt = Date.now();
+        this.standbyTimer = setTimeout(() => this.promoteStandby("deadline"), waitMs);
+        console.log(
+          `[TranslationBridge:${this.targetLanguage}] Replacement ready (${setupLatencyMs}ms) — holding for a pause, at most ${waitMs}ms`
+        );
+        return;
+      }
+      this.swapIn(ws, trigger ?? "close", "immediate");
+      return;
     } else {
       console.log(
         `[TranslationBridge:${this.targetLanguage}] Gemini setup complete`
@@ -1078,6 +1190,100 @@ export class TranslationBridge {
     }
 
     this.flushPendingFrames();
+  }
+
+  /**
+   * Move the input to `ws` and retire the current socket into a drain. `how` says what
+   * set the moment: a pause, the deadline, the old socket dying, or (for close/resume
+   * reconnects, where nothing is left to wait for) immediately.
+   */
+  private swapIn(
+    ws: WebSocket,
+    trigger: ReconnectTrigger,
+    how: "pause" | "deadline" | "old_closed" | "immediate"
+  ): void {
+    const old = this.geminiWs;
+    this.geminiWs = ws;
+    this.geminiSetupComplete = true;
+    this.reconnecting = false;
+    this.reconnectCount++;
+    this.goAwayDeadlineAt = 0;
+    if (old && old !== ws) this.beginDrain(old);
+    const waitedMs = how === "immediate" ? 0 : Date.now() - this.standbyReadyAt;
+    console.log(
+      `[TranslationBridge:${this.targetLanguage}] Gemini swapped in (trigger=${trigger}, at=${how}, waited=${waitedMs}ms, draining=${!!this.drainingWs}, total=${this.reconnectCount})`
+    );
+    this.record("gemini_swapped", { trigger, at: how, waitedMs, totalReconnects: this.reconnectCount });
+    this.flushPendingFrames();
+  }
+
+  /** Swap the ready standby in now. */
+  private promoteStandby(how: "pause" | "deadline" | "old_closed"): void {
+    const ws = this.standbyWs;
+    if (!ws) return;
+    const readyAt = this.standbyReadyAt;
+    const trigger = this.standbyTrigger;
+    this.dropStandby({ close: false });
+    if (ws.readyState !== WebSocket.OPEN) {
+      // Died while waiting without its close event reaching us yet; start over.
+      this.reconnecting = false;
+      this.beginReconnect(trigger);
+      return;
+    }
+    this.standbyReadyAt = readyAt;
+    this.sessionConnectedAt = readyAt;
+    this.swapIn(ws, trigger, how);
+  }
+
+  /** Forget the standby (closing it unless it's about to be promoted). */
+  private dropStandby(opts: { close: boolean } = { close: true }): void {
+    if (this.standbyTimer) {
+      clearTimeout(this.standbyTimer);
+      this.standbyTimer = null;
+    }
+    const ws = this.standbyWs;
+    this.standbyWs = null;
+    if (ws && opts.close) this.closeSocket(ws);
+  }
+
+  /** Stop feeding `old` but keep publishing what it still says (see "Session swaps"). */
+  private beginDrain(old: WebSocket): void {
+    if (this.drainingWs) this.endDrain("superseded");
+    if (old.readyState !== WebSocket.OPEN) return;
+    // Tell it the input has ended, so it finishes the utterance it's in rather than
+    // waiting for more. Harmless if the model ignores it.
+    try {
+      old.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
+    } catch {
+      // closing; the drain ends on its close event
+    }
+    this.drainingWs = old;
+    this.drainStartedAt = Date.now();
+    this.drainFrames = 0;
+    this.drainSilentSkipped = 0;
+    this.drainTimer = setTimeout(() => this.endDrain("timeout"), MAX_DRAIN_MS);
+  }
+
+  /** Close the draining socket, if any, and report how much its drain recovered. */
+  private endDrain(reason: "replacement_audio" | "timeout" | "closed" | "superseded" | "teardown"): void {
+    const ws = this.drainingWs;
+    if (!ws) return;
+    this.drainingWs = null;
+    if (this.drainTimer) {
+      clearTimeout(this.drainTimer);
+      this.drainTimer = null;
+    }
+    this.closeSocket(ws);
+    const drainMs = Date.now() - this.drainStartedAt;
+    console.log(
+      `[TranslationBridge:${this.targetLanguage}] Drain ended (${reason}) after ${drainMs}ms, ${this.drainFrames} audio chunks from the old session, ${this.drainSilentSkipped} silent chunks from the new one held back`
+    );
+    this.record("gemini_drain_ended", {
+      reason,
+      drainMs,
+      audioChunks: this.drainFrames,
+      replacementSilentChunks: this.drainSilentSkipped,
+    });
   }
 
   /** Close a socket on purpose, so its close event isn't reported as a Gemini error. */
@@ -1237,13 +1443,23 @@ export class TranslationBridge {
       });
       // Gemini said this socket is ending, so its close won't be an error.
       if (this.geminiWs) this.expectedClose.add(this.geminiWs);
+      // Unknown lead time → no waiting for a pause; swap as soon as the replacement is up.
+      this.goAwayDeadlineAt = timeLeftMs != null ? Date.now() + timeLeftMs : 0;
       this.beginReconnect("goaway");
       return;
     }
 
     // sessionResumptionUpdate arrives about once a second and is deliberately unused
-    // (see docs/OBSERVABILITY.md); it used to be logged each time, ~20k lines a month.
+    // (see "Session swaps" above for why); it used to be logged each time, ~20k a month.
 
+    this.handleContent(message);
+  }
+
+  /**
+   * Publish audio and transcript from a content message: the active socket's, or
+   * (`draining`) the retired one's last words.
+   */
+  private handleContent(message: Record<string, unknown>, opts: { draining?: boolean } = {}): void {
     const serverContent = (message as { serverContent?: { modelTurn?: { parts?: Array<{ inlineData?: { data?: string } }> }; outputTranscription?: { text?: string }; inputTranscription?: { text?: string } } }).serverContent;
     const parts = serverContent?.modelTurn?.parts;
 
@@ -1255,6 +1471,18 @@ export class TranslationBridge {
             console.log(
               `[TranslationBridge:${this.targetLanguage}] Received audio frame #${this.framesReceivedFromGemini} from Gemini (${part.inlineData.data.length} bytes base64)`
             );
+          }
+          if (opts.draining) {
+            this.drainFrames++;
+          } else if (this.drainingWs) {
+            // The replacement, while the old session is still finishing. Its silence
+            // would only be spliced between the old session's last words, so hold it
+            // back; its first voiced chunk ends the drain (see VOICED_OUTPUT_DBFS).
+            if (base64PcmDbfs(part.inlineData.data) < VOICED_OUTPUT_DBFS) {
+              this.drainSilentSkipped++;
+              continue;
+            }
+            this.endDrain("replacement_audio");
           }
           // Queue frame for sequential capture (avoid promise pile-up)
           this.queueAudioFrame(part.inlineData.data);
@@ -1622,6 +1850,12 @@ export class TranslationBridge {
     // from genuine dead air (droppable).
     const dbfs = frameRmsDbfs(frame.data);
     this.noteInputLevel(dbfs);
+    // A ready standby takes over once the input has been quiet for PAUSE_FRAMES. The
+    // count runs whether or not a standby is waiting, so one that becomes ready in the
+    // middle of a pause takes over on the next quiet frame. Either way the frame that
+    // triggers it is quiet, and it goes to the new session.
+    this.quietFrames = dbfs < PAUSE_DBFS ? this.quietFrames + 1 : 0;
+    if (this.standbyWs && this.quietFrames >= PAUSE_FRAMES) this.promoteStandby("pause");
     const isVoice = dbfs >= this.silenceThresholdDbfs;
     if (isVoice) {
       this.lastVoiceAt = Date.now();
