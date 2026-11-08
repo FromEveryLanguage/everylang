@@ -158,6 +158,19 @@ const SILENCE_PREROLL_FRAMES = Math.round(500 / INPUT_FRAME_MS);
 // faint consonant is never dropped for latency (see SILENCE_FLOOR_DBFS).
 const MAX_GAP_SILENCE_FRAMES = Math.round(300 / INPUT_FRAME_MS);
 
+// A *pause*: at least PAUSE_FRAMES consecutive input frames below PAUSE_DBFS. Looser
+// than the voice bar: it only has to find a gap between words, not prove the room is
+// empty. Nothing acts on it yet. The once-a-minute input level summary counts pauses
+// so a swap timed to land on one can be checked against what the sound board really
+// sends before it ships.
+export const PAUSE_DBFS = -40;
+export const PAUSE_FRAMES = Math.round(300 / INPUT_FRAME_MS);
+
+// The primary bridge logs a summary of its input level once a minute, so the voice
+// bar (LIVE_AUDIO_SILENCE_THRESHOLD_DBFS) and PAUSE_DBFS can be set from the levels
+// the sound board actually sends rather than guessed.
+const LEVEL_SUMMARY_MS = 60_000;
+
 /**
  * RMS level of a PCM16 frame in dBFS (0 dBFS = a full-scale 32768 amplitude).
  * Returns -Infinity for pure digital silence. Used to decide whether the
@@ -185,6 +198,45 @@ export function isSilentFrame(
   thresholdDbfs: number = SILENCE_THRESHOLD_DBFS
 ): boolean {
   return frameRmsDbfs(data) < thresholdDbfs;
+}
+
+/**
+ * A window of frame levels (dBFS, in arrival order), rounded to whole dBFS:
+ * percentiles, the share below PAUSE_DBFS, and how many pauses it held.
+ * `pauses` is what a pause-timed swap depends on. The percentiles can't show it:
+ * a feed can be 30% quiet frames and still never be quiet for 300ms at a stretch.
+ */
+export function summarizeLevels(levels: number[]): {
+  frames: number;
+  p10: number;
+  p50: number;
+  p90: number;
+  belowPausePct: number;
+  pauses: number;
+} {
+  const sorted = [...levels].sort((a, b) => a - b);
+  const at = (q: number) =>
+    sorted.length ? Math.round(sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]) : 0;
+  let below = 0;
+  let run = 0;
+  let pauses = 0;
+  for (const d of levels) {
+    if (d < PAUSE_DBFS) {
+      below++;
+      run++;
+      if (run === PAUSE_FRAMES) pauses++; // count each quiet run once
+    } else {
+      run = 0;
+    }
+  }
+  return {
+    frames: levels.length,
+    p10: at(0.1),
+    p50: at(0.5),
+    p90: at(0.9),
+    belowPausePct: levels.length ? Math.round((100 * below) / levels.length) : 0,
+    pauses,
+  };
 }
 
 /**
@@ -422,6 +474,9 @@ export class TranslationBridge {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionConnectedAt: number = 0;
   private framesDroppedWhileDown: number = 0;
+  // Input levels since the last summary (primary bridge only).
+  private levelWindow: number[] = [];
+  private levelWindowStartedAt: number = 0;
 
   // Organizer-audio liveness. The bridge's defining failure mode is going deaf while
   // staying `active` (see docs/live-audio-resilience.md), so the input side is
@@ -1116,9 +1171,9 @@ export class TranslationBridge {
       },
     };
 
+    // One line: pretty-printed, this was ~25 lines per socket and a quarter of the log.
     console.log(
-      `[TranslationBridge:${this.targetLanguage}] Sending Gemini setup:`,
-      JSON.stringify(setupMessage, null, 2)
+      `[TranslationBridge:${this.targetLanguage}] Sending Gemini setup: ${JSON.stringify(setupMessage)}`
     );
 
     ws.send(JSON.stringify(setupMessage));
@@ -1149,16 +1204,8 @@ export class TranslationBridge {
       return;
     }
 
-    // sessionResumptionUpdate: we don't resume yet, but record whether the translate
-    // model even offers a handle — informs whether session resumption is worth adding.
-    const sru = message.sessionResumptionUpdate ?? message.session_resumption_update;
-    if (sru) {
-      const o = sru as { resumable?: boolean; newHandle?: string; new_handle?: string };
-      this.record("gemini_session_resumption_update", {
-        resumable: !!o.resumable,
-        hasHandle: !!(o.newHandle ?? o.new_handle),
-      });
-    }
+    // sessionResumptionUpdate arrives about once a second and is deliberately unused
+    // (see docs/OBSERVABILITY.md); it used to be logged each time, ~20k lines a month.
 
     const serverContent = (message as { serverContent?: { modelTurn?: { parts?: Array<{ inlineData?: { data?: string } }> }; outputTranscription?: { text?: string }; inputTranscription?: { text?: string } } }).serverContent;
     const parts = serverContent?.modelTurn?.parts;
@@ -1537,6 +1584,7 @@ export class TranslationBridge {
     // raw level is passed on so the gap-collapse can tell a faint consonant (kept)
     // from genuine dead air (droppable).
     const dbfs = frameRmsDbfs(frame.data);
+    this.noteInputLevel(dbfs);
     const isVoice = dbfs >= this.silenceThresholdDbfs;
     if (isVoice) {
       this.lastVoiceAt = Date.now();
@@ -1564,6 +1612,25 @@ export class TranslationBridge {
       // lost — they're flushed into the fresh session on setupComplete.
       this.bufferFrame(frame.data, { preroll: false, dbfs });
     }
+  }
+
+  /**
+   * Accumulate input levels and, once a minute, log their spread (primary bridge only:
+   * every bridge hears the same input). This is the data for choosing the voice bar.
+   */
+  private noteInputLevel(dbfs: number): void {
+    if (!this.writesSourceTranscript) return;
+    const now = Date.now();
+    if (!this.levelWindowStartedAt) this.levelWindowStartedAt = now;
+    this.levelWindow.push(Math.max(dbfs, -100)); // digital silence → a finite floor
+    if (now - this.levelWindowStartedAt < LEVEL_SUMMARY_MS) return;
+    const summary = summarizeLevels(this.levelWindow);
+    this.levelWindow = [];
+    this.levelWindowStartedAt = now;
+    console.log(
+      `[TranslationBridge:${this.targetLanguage}] Input level, last minute: p10=${summary.p10} p50=${summary.p50} p90=${summary.p90} dBFS; below pause bar ${summary.belowPausePct}%, ${summary.pauses} pauses`
+    );
+    this.record("input_level_summary", summary);
   }
 
   /**

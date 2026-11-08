@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  PAUSE_DBFS,
   frameRmsDbfs,
+  summarizeLevels,
   isSilentFrame,
   nextBackoffMs,
   parseGoAwayTimeLeftMs,
@@ -350,5 +352,33 @@ describe("shouldRecoverStalledInput", () => {
         stallMs,
       })
     ).toBe(true);
+  });
+});
+
+describe("summarizeLevels", () => {
+  const loud = -20;
+  const quiet = PAUSE_DBFS - 10;
+
+  it("counts a pause only once it lasts 300ms, and each quiet run once", () => {
+    // 200ms gap (not a pause), then a 500ms gap (one pause), then a 300ms gap (one).
+    const levels = [loud, quiet, quiet, loud, quiet, quiet, quiet, quiet, quiet, loud, quiet, quiet, quiet];
+    const s = summarizeLevels(levels);
+    expect(s.pauses).toBe(2);
+    expect(s.frames).toBe(13);
+    expect(s.belowPausePct).toBe(Math.round((100 * 10) / 13));
+  });
+
+  it("shows a feed that is often quiet but never pauses", () => {
+    // Every other frame quiet: half the frames below the bar, no 300ms gap anywhere.
+    const levels = Array.from({ length: 600 }, (_, i) => (i % 2 ? quiet : loud));
+    const s = summarizeLevels(levels);
+    expect(s.belowPausePct).toBe(50);
+    expect(s.pauses).toBe(0);
+  });
+
+  it("reports percentiles in whole dBFS, and zeros for an empty window", () => {
+    const s = summarizeLevels(Array.from({ length: 10 }, (_, i) => -10 * (i + 1) - 0.4));
+    expect([s.p10, s.p50, s.p90]).toEqual([-90, -50, -10]);
+    expect(summarizeLevels([])).toEqual({ frames: 0, p10: 0, p50: 0, p90: 0, belowPausePct: 0, pauses: 0 });
   });
 });
