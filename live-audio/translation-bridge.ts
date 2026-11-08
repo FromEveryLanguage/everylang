@@ -74,6 +74,31 @@ export interface BridgeHealth {
   reconnects: number;
   /** Gap-buffer depth right now — current added latency in frames. */
   bufferedFrames: number;
+  /**
+   * The last Gemini close nobody asked for, cleared once a socket sets up again.
+   * Non-null while the bridge is stuck retrying something Gemini keeps refusing.
+   */
+  lastGeminiError: GeminiError | null;
+}
+
+/** A Gemini socket closing when the bridge neither closed it nor was warned (goAway). */
+export interface GeminiError {
+  code: number;
+  reason: string;
+  at: number;
+  kind: GeminiErrorKind;
+}
+
+/**
+ * `billing` is the one Gemini failure retrying can't fix and a human must: on
+ * 2026-10-25 the prepaid credits ran out mid-service, every connect was refused with
+ * `1011 Your prepayment credits are depleted`, and French was silent for 27 minutes
+ * before anyone noticed — by ear. It gets its own kind so /status can say so plainly.
+ */
+export type GeminiErrorKind = "billing" | "other";
+
+export function classifyGeminiError(reason: string): GeminiErrorKind {
+  return /credit|billing|prepay|quota|RESOURCE_EXHAUSTED/i.test(reason) ? "billing" : "other";
 }
 
 /** Records a telemetry event. Implemented in the server over the PostHog client. */
@@ -474,6 +499,11 @@ export class TranslationBridge {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionConnectedAt: number = 0;
   private framesDroppedWhileDown: number = 0;
+  private lastGeminiError: GeminiError | null = null;
+  // Sockets whose close is expected: ones the bridge closed itself (suspend, swap,
+  // teardown, a stale setup) and ones Gemini warned about with a goAway. Their close
+  // frames aren't errors, whatever code and reason Gemini puts on them.
+  private expectedClose = new WeakSet<WebSocket>();
   // Input levels since the last summary (primary bridge only).
   private levelWindow: number[] = [];
   private levelWindowStartedAt: number = 0;
@@ -569,6 +599,7 @@ export class TranslationBridge {
       lastOutputFrameAt: this.lastAudioFrameTime,
       reconnects: this.reconnectCount,
       bufferedFrames: this.pendingFrames.length,
+      lastGeminiError: this.lastGeminiError,
     };
   }
 
@@ -685,11 +716,11 @@ export class TranslationBridge {
       this.reconnectTimer = null;
     }
     if (this.pendingWs) {
-      this.pendingWs.close();
+      this.closeSocket(this.pendingWs);
       this.pendingWs = null;
     }
     if (this.geminiWs) {
-      this.geminiWs.close();
+      this.closeSocket(this.geminiWs);
       this.geminiWs = null;
     }
     this.geminiSetupComplete = false;
@@ -931,11 +962,7 @@ export class TranslationBridge {
             `[TranslationBridge:${this.targetLanguage}] Dropping stale setupComplete (${opts.role})`
           );
           this.record("gemini_stale_socket_dropped", { role: opts.role, trigger: opts.trigger });
-          try {
-            ws.close();
-          } catch {
-            // already closing
-          }
+          this.closeSocket(ws);
           return;
         }
         ready = true;
@@ -977,6 +1004,9 @@ export class TranslationBridge {
         framesReceived: this.framesReceivedFromGemini,
         totalReconnects: this.reconnectCount,
       });
+      if (!this.expectedClose.has(ws)) {
+        this.lastGeminiError = { code, reason: reasonStr, at: Date.now(), kind: classifyGeminiError(reasonStr) };
+      }
 
       if (opts.role === "initial" && !ready) {
         opts.onInitialError?.(
@@ -1018,6 +1048,7 @@ export class TranslationBridge {
   ): void {
     this.sessionConnectedAt = Date.now();
     this.geminiSetupComplete = true;
+    this.lastGeminiError = null;
 
     if (role === "pending") {
       const old = this.geminiWs;
@@ -1025,13 +1056,7 @@ export class TranslationBridge {
       this.pendingWs = null;
       this.reconnecting = false;
       this.reconnectCount++;
-      if (old && old !== ws) {
-        try {
-          old.close();
-        } catch {
-          // already closing
-        }
-      }
+      if (old && old !== ws) this.closeSocket(old);
       console.log(
         `[TranslationBridge:${this.targetLanguage}] Gemini reconnect setup complete — swapped in (trigger=${trigger}, total=${this.reconnectCount})`
       );
@@ -1053,6 +1078,16 @@ export class TranslationBridge {
     }
 
     this.flushPendingFrames();
+  }
+
+  /** Close a socket on purpose, so its close event isn't reported as a Gemini error. */
+  private closeSocket(ws: WebSocket): void {
+    this.expectedClose.add(ws);
+    try {
+      ws.close();
+    } catch {
+      // already closing
+    }
   }
 
   /** Start a reconnect unless one is already in flight. */
@@ -1200,6 +1235,8 @@ export class TranslationBridge {
         timeLeftMs,
         sessionAgeMs,
       });
+      // Gemini said this socket is ending, so its close won't be an error.
+      if (this.geminiWs) this.expectedClose.add(this.geminiWs);
       this.beginReconnect("goaway");
       return;
     }

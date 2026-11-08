@@ -66,6 +66,13 @@ The translate model also sends `sessionResumptionUpdate` about once a second, un
 It is not recorded: the bridge doesn't resume sessions, and logging each one was ~20k
 lines a month.
 
+A Gemini refusal that won't clear by itself (start failures, or a running bridge stuck on
+a close it didn't ask for) is also filed in the session doc as `status.liveAudio`
+([src/liveAudioStatus.ts](../src/liveAudioStatus.ts)), which turns the live-audio tile on
+`/status` red with Gemini's own message — `billing` for credits/quota. Closes the bridge
+caused itself (a swap, a silence suspend, teardown) or was warned of by a `goAway` are
+never filed, whatever code and reason Gemini puts on the close frame.
+
 Server-level exceptions reach PostHog two ways, both wired in [server.ts](../server.ts):
 
 - **Explicitly**, via `phClient.captureException(...)` inside a route's own `try`/`catch`
