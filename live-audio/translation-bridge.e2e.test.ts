@@ -355,7 +355,12 @@ class FakeAudioSource {
     this.channels = channels;
   }
 
-  async captureFrame(): Promise<void> {}
+  /** First sample of every frame published, in order: tests tag each socket's audio by it. */
+  static published: number[] = [];
+
+  async captureFrame(frame: FakeAudioFrame): Promise<void> {
+    FakeAudioSource.published.push(frame.data[0]);
+  }
 }
 
 vi.mock("@livekit/rtc-node", () => ({
@@ -524,6 +529,7 @@ describe("TranslationBridge (end-to-end, faked LiveKit + Gemini)", () => {
     vi.useFakeTimers();
     FakeGeminiSocket.instances = [];
     lastRoom = null;
+    FakeAudioSource.published = [];
   });
 
   afterEach(() => {
@@ -1068,11 +1074,13 @@ describe("TranslationBridge (end-to-end, faked LiveKit + Gemini)", () => {
       const { bridge, seated: mic } = await boot((room) => room.seatOrganizer(ORGANIZER));
       const [old] = FakeGeminiSocket.instances;
       await speakVoice(mic, 1);
-      // A goAway swap: the bridge closes the old socket once the replacement is up.
+      // A goAway swap: the bridge closes the old socket once it has drained.
       closeWithReason(old, 1000, "Client closed the connection");
       old.emit("message", Buffer.from(JSON.stringify({ goAway: { timeLeft: "50s" } })));
       await vi.advanceTimersByTimeAsync(50);
       expect(FakeGeminiSocket.instances).toHaveLength(2);
+      await speak(mic, 3); // a pause: the swap
+      await vi.advanceTimersByTimeAsync(6_100); // the drain times out
       expect(old.readyState).toBe(3);
       expect(bridge.health().lastGeminiError).toBeNull();
 
@@ -1092,6 +1100,176 @@ describe("TranslationBridge (end-to-end, faked LiveKit + Gemini)", () => {
       old.emit("close", 1000, Buffer.from("Session duration limit reached"));
       expect(bridge.health().lastGeminiError).toBeNull();
       await bridge.stop();
+    });
+  });
+
+  describe("Gemini session swaps (goAway)", () => {
+    /**
+     * Translated audio from a socket, tagged so the published stream shows its source.
+     * The tag is the sample value, so it's also the loudness: 1000 (~-30 dBFS) is
+     * voiced, and a tag of 1 (~-90 dBFS) is the silence the model also streams.
+     */
+    const sayFrom = (socket: FakeGeminiSocket, tag: number) => {
+      const pcm = Buffer.from(new Int16Array(240).fill(tag).buffer);
+      socket.deliver({ serverContent: { modelTurn: { parts: [{ inlineData: { data: pcm.toString("base64") } }] } } });
+    };
+    const goAway = (socket: FakeGeminiSocket, timeLeft: string) =>
+      socket.emit("message", Buffer.from(JSON.stringify({ goAway: { timeLeft } })));
+
+    async function bootWithEvents() {
+      const events: Array<{ event: string; props: Record<string, unknown> }> = [];
+      const booted = await boot((room) => room.seatOrganizer(ORGANIZER), {
+        recordEvent: (event: string, props: Record<string, unknown>) => events.push({ event, props }),
+      });
+      return { ...booted, events };
+    }
+
+    it("holds the replacement until the speaker pauses, then lets the old session finish", async () => {
+      const { bridge, seated: mic, events } = await bootWithEvents();
+      const [old] = FakeGeminiSocket.instances;
+      await speakVoice(mic, 2);
+
+      goAway(old, "50s");
+      await vi.advanceTimersByTimeAsync(50); // replacement opens and sets up
+      const replacement = FakeGeminiSocket.instances[1];
+      expect(replacement.setups).toHaveLength(1);
+
+      // Mid-sentence: the replacement is ready but must not take the input yet.
+      await speakVoice(mic, 5);
+      expect(replacement.audioFramesReceived).toHaveLength(0);
+      const oldHeard = old.audioFramesReceived.length;
+
+      // A pause (300ms of quiet) → the input moves over, starting with the quiet frames.
+      await speak(mic, 3);
+      await speakVoice(mic, 2);
+      expect(events.find((e) => e.event === "gemini_swapped")?.props.at).toBe("pause");
+      expect(replacement.audioFramesReceived.length).toBeGreaterThanOrEqual(2);
+      expect(old.audioFramesReceived.length).toBeLessThanOrEqual(oldHeard + 3);
+
+      // The old session is still open and its last words are published, not dropped...
+      expect(old.readyState).toBe(FakeGeminiSocket.OPEN);
+      sayFrom(old, 1000);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(FakeAudioSource.published).toEqual([1000]);
+
+      // ...until the replacement starts speaking; then the old one is closed.
+      sayFrom(replacement, 2000);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(FakeAudioSource.published).toEqual([1000, 2000]);
+      expect(old.readyState).not.toBe(FakeGeminiSocket.OPEN);
+      expect(events.find((e) => e.event === "gemini_drain_ended")?.props.reason).toBe("replacement_audio");
+      await bridge.stop();
+    });
+
+    it("keeps draining through the replacement's silent chunks, and ends on its first voiced one", async () => {
+      // The translate model streams silence as well as speech. A fresh session's first
+      // chunk can be silent, and ending the drain on it would close the old session
+      // with its last words still unsaid.
+      const { bridge, seated: mic, events } = await bootWithEvents();
+      const [old] = FakeGeminiSocket.instances;
+      goAway(old, "50s");
+      await vi.advanceTimersByTimeAsync(50);
+      const replacement = FakeGeminiSocket.instances[1];
+      await speak(mic, 3); // pause → swap; old drains
+
+      sayFrom(replacement, 1); // silence from the new session
+      sayFrom(old, 1000); // the old session's last words, still arriving
+      await vi.advanceTimersByTimeAsync(10);
+      expect(old.readyState).toBe(FakeGeminiSocket.OPEN);
+      // Its silence isn't spliced into the old session's tail either.
+      expect(FakeAudioSource.published).toEqual([1000]);
+
+      sayFrom(replacement, 2000);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(old.readyState).not.toBe(FakeGeminiSocket.OPEN);
+      expect(FakeAudioSource.published).toEqual([1000, 2000]);
+      expect(events.find((e) => e.event === "gemini_drain_ended")?.props).toMatchObject({
+        reason: "replacement_audio",
+        audioChunks: 1,
+        replacementSilentChunks: 1,
+      });
+
+      // Drain over: the new session's silence is published like any other audio.
+      sayFrom(replacement, 1);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(FakeAudioSource.published).toEqual([1000, 2000, 1]);
+      await bridge.stop();
+    });
+
+    it("a simulated goAway (the chaos route) drives the same swap as a real one", async () => {
+      const { bridge, seated: mic, events } = await bootWithEvents();
+      bridge.simulateGoAway(50_000);
+      await vi.advanceTimersByTimeAsync(50);
+      await speak(mic, 3);
+      expect(events.map((e) => e.event)).toContain("gemini_goaway_simulated");
+      expect(events.find((e) => e.event === "gemini_swapped")?.props.at).toBe("pause");
+      await bridge.stop();
+    });
+
+    it("swaps at the deadline when the speaker never pauses", async () => {
+      const { bridge, seated: mic, events } = await bootWithEvents();
+      const [old] = FakeGeminiSocket.instances;
+      goAway(old, "15s"); // deadline = 15s - 10s margin = 5s
+      await vi.advanceTimersByTimeAsync(50);
+      const replacement = FakeGeminiSocket.instances[1];
+
+      for (let i = 0; i < 40; i++) {
+        mic.push(voiceFrame());
+        await vi.advanceTimersByTimeAsync(100);
+      }
+      expect(replacement.audioFramesReceived).toHaveLength(0);
+      for (let i = 0; i < 15; i++) {
+        mic.push(voiceFrame());
+        await vi.advanceTimersByTimeAsync(100);
+      }
+      expect(events.find((e) => e.event === "gemini_swapped")?.props.at).toBe("deadline");
+      expect(replacement.audioFramesReceived.length).toBeGreaterThan(0);
+      await bridge.stop();
+    });
+
+    it("hands over at once if the old session dies while the replacement waits", async () => {
+      const { bridge, seated: mic, events } = await bootWithEvents();
+      const [old] = FakeGeminiSocket.instances;
+      goAway(old, "50s");
+      await vi.advanceTimersByTimeAsync(50);
+      const replacement = FakeGeminiSocket.instances[1];
+
+      old.close();
+      await speakVoice(mic, 2);
+      expect(events.find((e) => e.event === "gemini_swapped")?.props.at).toBe("old_closed");
+      expect(replacement.audioFramesReceived).toHaveLength(2);
+      // No third socket: the ready replacement was used, not a fresh reconnect.
+      expect(FakeGeminiSocket.instances).toHaveLength(2);
+      await bridge.stop();
+    });
+
+    it("closes the old session after a bounded drain even if the replacement stays quiet", async () => {
+      const { bridge, seated: mic, events } = await bootWithEvents();
+      const [old] = FakeGeminiSocket.instances;
+      goAway(old, "50s");
+      await vi.advanceTimersByTimeAsync(50);
+      await speak(mic, 3); // pause → swap
+      expect(old.readyState).toBe(FakeGeminiSocket.OPEN);
+
+      await vi.advanceTimersByTimeAsync(6_100);
+      expect(old.readyState).not.toBe(FakeGeminiSocket.OPEN);
+      expect(events.find((e) => e.event === "gemini_drain_ended")?.props.reason).toBe("timeout");
+      await bridge.stop();
+    });
+
+    it("stop() closes a waiting replacement and a draining session — no paid-for leftovers", async () => {
+      const { bridge, seated: mic } = await bootWithEvents();
+      const [old] = FakeGeminiSocket.instances;
+      goAway(old, "50s");
+      await vi.advanceTimersByTimeAsync(50);
+      await speak(mic, 3); // swap: old drains, replacement active
+      goAway(FakeGeminiSocket.instances[1], "50s");
+      await vi.advanceTimersByTimeAsync(50); // a third socket now waits as standby
+
+      await bridge.stop();
+      for (const socket of FakeGeminiSocket.instances) {
+        expect(socket.readyState).not.toBe(FakeGeminiSocket.OPEN);
+      }
     });
   });
 });
