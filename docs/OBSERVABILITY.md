@@ -60,7 +60,11 @@ supervisor start/stop decision.
 | `gemini_input_dropped` | Input lost because the buffer overflowed (long outage). | `frames` — genuine loss |
 | `gemini_suspended_silence` | Cost path: socket torn down after sustained silence. | `silentMs`, `framesSent/Received` |
 | `gemini_resumed_voice` | Cost path: socket reopened on returning speech. | `silentMs` |
-| `gemini_session_resumption_update` | Whether the translate model offered a resume handle (not yet used). | `resumable`, `hasHandle` |
+| `input_level_summary` | Once a minute, primary bridge only: the spread of input levels. | `p10`/`p50`/`p90` dBFS, `belowPausePct`, `pauses` (quiet runs long enough to swap sessions on; see `PAUSE_DBFS`) — the data for setting `LIVE_AUDIO_SILENCE_THRESHOLD_DBFS` and the pause bar |
+
+The translate model also sends `sessionResumptionUpdate` about once a second, unrequested.
+It is not recorded: the bridge doesn't resume sessions, and logging each one was ~20k
+lines a month.
 
 Server-level exceptions reach PostHog two ways, both wired in [server.ts](../server.ts):
 
