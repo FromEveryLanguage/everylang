@@ -1,23 +1,35 @@
-# To set up
+## Local development
 
-- Copy `template-.env` to `.env`
-- Get a Gemini API key and add it to `.env` as `GEMINI_API_KEY`.
-- Get an ElevenLabs API key and add it to `.env` as `ELEVENLABS_API_KEY`.
-- Run `npm install` to install packages.
+1. If you have not installed the dependencies yet, run `npm install`.
+2. Copy `template-.env` to `.env` and fill in the required credentials before starting
+   any services:
+   - Add your Gemini and ElevenLabs API keys as `GEMINI_API_KEY` and
+     `ELEVENLABS_API_KEY`.
+   - Add your Y-Sweet connection string as `YSWEET_CONNECTION_STRING`.
+   - Create a free project at [LiveKit Cloud](https://cloud.livekit.io/), create an API
+     key for the project, and add its URL, API key, and API secret to `.env` as
+     `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`.
+3. In a terminal, start Y-Sweet:
 
-## To run
+   ```bash
+   npm run dev:ysweet
+   ```
 
-Backend:
+4. In a second terminal, start the backend:
 
-```
-npm run dev:server
-```
+   ```bash
+   npm run dev:server
+   ```
 
-Frontend:
+5. In a third terminal, start the frontend:
 
-```
-npm run dev
-```
+   ```bash
+   npm run dev
+   ```
+
+6. Open the broadcast page at
+   [http://127.0.0.1:[PORT]/broadcast%7Clisten-fr#editor](http://127.0.0.1:5008/broadcast%7Clisten-fr#editor).
+   Replace [PORT] with the port number printed in the terminal when you started the frontend. Ex: 5008.
 
 ## Testing & Building
 
@@ -56,8 +68,14 @@ docker compose up -d
 ./deploy-docker-compose.sh
 ```
 
-It runs `git pull`, builds, and starts with `compose.prod.yaml` (which sets the public
-y-sweet URL). `deploy-flyio.sh` is the Fly.io equivalent.
+It builds and starts with `compose.prod.yaml` (which sets the public y-sweet URL). The
+`git pull` command in the script is commented out, so update the checkout on the server
+before running it if you want to deploy the latest branch.
+
+Fly.io is not currently used; it was a temporary deployment while the main server had
+hardware trouble. `deploy-flyio.sh` deploys the app. It includes a Y-Sweet deploy command,
+but that command is intentionally commented out so routine app deployments do not also
+redeploy Y-Sweet, which changes infrequently.
 
 ### Other commands
 
@@ -78,5 +96,11 @@ This is a live translation application for presentations/talks. It provides:
 - Text-to-speech output (ElevenLabs)
 - Collaborative editing (Y-Sweet/Yjs)
 - Multiple layout configurations, chosen by URL — see [docs/LAYOUT_URLS.md](docs/LAYOUT_URLS.md)
+- Live speech translation and transcripts using LiveKit and Gemini Live.
+- Proclaim slide synchronization and advance translation through the Python service.
+- Slide translation review and a persistent library of reviewed translations.
+- An optional native macOS Audio Feeder app for publishing sound-board audio to LiveKit.
 
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the application components fit
+together, and [docs/PROCLAIM_INTEGRATION.md](docs/PROCLAIM_INTEGRATION.md) for Proclaim setup.
 See [CLAUDE.md](CLAUDE.md) for detailed architecture and development information.
