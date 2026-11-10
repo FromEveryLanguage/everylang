@@ -165,7 +165,7 @@ Ships standalone value: lets you pre-translate and review immediately.
     sourceText)`, *and* POSTs to `/api/slideLibrary` so the edit persists across days.
     Because keys are content-addressed, the edit lands on any on-screen slide with
     matching text — the live viewer updates with no round-trip through the service.
-- **New live view** `slideTranslation-{language}` (container + pure component
+- **New live view** `slideTranslation-{code}` (container + pure component
   modeled on `CurrentSlideViewer`): reads `proclaimStatus` + `proclaimPresentations`
   (current slide source text) + `slideTranslations` (translation + status), resolves
   via `resolveSlideTranslation` (fallback chain), and renders the current slide's
@@ -233,7 +233,7 @@ it.
 - `src/SlideReview*.tsx` (new) — review UI (pure + container), Phase A.
 - `src/SlideTranslationViewer*.tsx` (new) — live translated slide (pure + container),
   Phase C.
-- `src/App.tsx` — register `slideReview` and `slideTranslation-{language}` in
+- `src/App.tsx` — register `slideReview` and `slideTranslation-{code}` in
   `PagePart` (~line 164) and the home layout list (~line 43).
 - `proclaim_service.py` / `proclaim_lib.py` — full-order push, original-screen
   extraction, `slidesHash` change detection, optional seed import (Phase B/C).

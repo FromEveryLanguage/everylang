@@ -33,7 +33,7 @@ it falls through to `fr`. A Haitian Creole speaker who picks their own language 
 "Slide and Listen" gets Haitian Creole slides beside **French** audio and a **French**
 transcript, with nothing on screen admitting the substitution.
 
-The same class of bug exists in the other direction: `slideTranslation-{lang}` validates
+The same class of bug exists in the other direction: `slideTranslation-{code}` validates
 against `languages` and falls back to `languages[0]`
 ([App.tsx](../src/App.tsx)), so any listener whose language has no slide
 translation would be shown French slides.
@@ -109,7 +109,7 @@ FEATURE_NOTE_TAKING=off           # hides landing-page entries only
 LIVE_AUDIO_SOURCE_LANGUAGE=en     # already exists — now also sent to the client
 ```
 
-`FEATURE_NOTE_TAKING` is deliberately **presentation-only**. `/sourceText|bilingual-French#editor`
+`FEATURE_NOTE_TAKING` is deliberately **presentation-only**. `/sourceText|bilingual-fr#editor`
 keeps working by URL, so a note-taker can still run one on a whim, and flipping the flag
 back on is a single env change with no code path to re-verify. Worth a comment at the
 definition so nobody later "hardens" it into enforcement.
@@ -167,8 +167,8 @@ list — without pretending a deployment can grant a capability it does not have
 | Language | Capabilities | Destination |
 |---|---|---|
 | `en` (= source) | audio + is the spoken language | `listen-en` — transcript is the point, audio one tap away |
-| `fr`, `es` | audio + slide translation | `slideTranslation-{Name},listen-{code}` |
-| `ht` | slide translation only | `slideTranslation-Haitian Creole`, card says "slides only" |
+| `fr`, `es` | audio + slide translation | `slideTranslation-{code},listen-{code}` |
+| `ht` | slide translation only | `slideTranslation-ht`, card says "slides only" |
 | `pt`, ~95 others | audio only | `listen-pt` alone |
 
 Deriving the destination from capabilities is what kills both §1a bugs: a pane is never
