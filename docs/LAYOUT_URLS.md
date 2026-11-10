@@ -16,21 +16,20 @@ So `/a,b|c` is `a` above `b` on the left, with `c` on the right. The definition 
 branches in the same file; an unknown name renders an "Unknown component" card rather than
 breaking the page, so a typo is visible.
 
-Text panes take a language's **display name** (`French`, `Haitian Creole`, URL-encoded as
-`Haitian%20Creole` if your tool insists). `listen-` takes a **BCP-47 code** (`fr`, `pt`).
-That split is historical, and the cache keys depend on the display names
-([LANDING_PAGE.md §7](LANDING_PAGE.md#7-open-questions-for-review)).
+Language-specific panes take a **BCP-47 code** (`fr`, `ht`, `pt`), regardless of whether they
+show notes, slides, or live audio. The code is only the URL identifier: translation data and
+cache keys still use the configured language names internally.
 
 ## Examples
 
 | You want | URL |
 |---|---|
 | English speaker: the slide, with the live transcript under it | `/currentSlide,listen-en` |
-| French slides and audio, side by side on a laptop | `/slideTranslation-French\|listen-fr` |
+| French slides and audio, side by side on a laptop | `/slideTranslation-fr\|listen-fr` |
 | French audio only, no slides | `/listen-fr` |
-| Booth screen: original slide beside its French translation | `/currentSlide\|slideTranslation-French` |
-| Sermon notes, French beside the original | `/bilingual-French` |
-| Note-taker (needs a write key) | `/sourceText\|bilingual-French#editor` |
+| Booth screen: original slide beside its French translation | `/currentSlide\|slideTranslation-fr` |
+| Sermon notes, French beside the original | `/bilingual-fr` |
+| Note-taker (needs a write key) | `/sourceText\|bilingual-fr#editor` |
 
 Append `?locale=fr` (or `es`, `ht`) to switch the interface language, and `?doc=…` to look
 at a session other than the current one ([CURRENT_SESSION.md](CURRENT_SESSION.md)).

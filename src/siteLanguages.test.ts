@@ -6,6 +6,8 @@ import {
   languageNameIn,
   languageOffer,
   parseSiteLanguages,
+  translationLanguageCode,
+  translationLanguageNameForCode,
 } from './siteLanguages';
 
 describe('parseSiteLanguages', () => {
@@ -42,16 +44,20 @@ describe('languageOffer', () => {
 
   it('pairs slides with audio when a language has both', () => {
     expect(languageOffer('fr', 'en')).toMatchObject({
-      layout: 'slideTranslation-French,listen-fr',
+      layout: 'slideTranslation-fr,listen-fr',
       audioIsStandIn: false,
     });
+  });
+
+  it('uses the language code for Spanish slide and audio panes too', () => {
+    expect(languageOffer('es', 'en').layout).toBe('slideTranslation-es,listen-es');
   });
 
   it('gives Haitian Creole its own slides with French audio, and flags the stand-in', () => {
     // The old landing page did this silently (docs/LANDING_PAGE.md §1a); the flag is what
     // lets the card say so.
     expect(languageOffer('ht', 'en')).toMatchObject({
-      layout: 'slideTranslation-Haitian Creole,listen-fr',
+      layout: 'slideTranslation-ht,listen-fr',
       listenCode: 'fr',
       audioIsStandIn: true,
     });
@@ -64,6 +70,15 @@ describe('languageOffer', () => {
   it('follows the session when the spoken language is not English', () => {
     expect(languageOffer('es', 'es').layout).toBe('listen-es');
     expect(languageOffer('en', 'es').layout).toBe('listen-en');
+  });
+});
+
+describe('translation language URL codes', () => {
+  it('maps URL codes to the configured translation names and back', () => {
+    expect(translationLanguageNameForCode('fr')).toBe('French');
+    expect(translationLanguageNameForCode('ht')).toBe('Haitian Creole');
+    expect(translationLanguageCode('Haitian Creole')).toBe('ht');
+    expect(translationLanguageNameForCode('pt')).toBeNull();
   });
 });
 

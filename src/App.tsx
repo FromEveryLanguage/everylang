@@ -12,6 +12,10 @@ import { editorDeniedAtom, fontSizeAtom, isEditorAtom, languages } from "./confi
 import { FontSizeControls } from "./FontSizeControls";
 import { useStrings, resolveLocale, LANGUAGE_BCP47 } from "./useLocale";
 import {
+  translationLanguageCode,
+  translationLanguageNameForCode,
+} from "./siteLanguages";
+import {
   LISTEN_LANGUAGE_CODES,
   listenFavorites,
   defaultListenCode,
@@ -84,11 +88,11 @@ function PagePart({ componentStr, onReplace }: { componentStr: string; onReplace
   const languageSelector = (prefix: string, language: string) => (
     <select
       className="ml-2 px-1 py-0.5 rounded text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700"
-      value={language}
+      value={translationLanguageCode(language)}
       onChange={(e) => onLanguageChange(prefix)(e.target.value)}
     >
       {languages.map((lang) => (
-        <option key={lang} value={lang}>{langDisplayNames.of(LANGUAGE_BCP47[lang]) ?? lang}</option>
+        <option key={lang} value={translationLanguageCode(lang)}>{langDisplayNames.of(LANGUAGE_BCP47[lang]) ?? lang}</option>
       ))}
     </select>
   );
@@ -153,7 +157,8 @@ function PagePart({ componentStr, onReplace }: { componentStr: string; onReplace
   }
 
   if (componentStr.startsWith('slideTranslation-')) {
-    const language = componentStr.substring('slideTranslation-'.length);
+    const slug = componentStr.substring('slideTranslation-'.length);
+    const language = translationLanguageNameForCode(slug) ?? slug;
     const validLanguage = (languages as readonly string[]).includes(language) ? language : languages[0];
     return (
       <div className={cardClass + " flex-1/2 overflow-auto"}>
@@ -167,7 +172,8 @@ function PagePart({ componentStr, onReplace }: { componentStr: string; onReplace
   }
 
   if (componentStr.startsWith('translatedText-')) {
-    const language = componentStr.substring('translatedText-'.length);
+    const slug = componentStr.substring('translatedText-'.length);
+    const language = translationLanguageNameForCode(slug) ?? slug;
     const validLanguage = (languages as readonly string[]).includes(language) ? language : languages[0];
     return (
       <div className={cardClass + " flex-1/2 bg-gray-100/80 dark:bg-gray-900/60 text-gray-900 dark:text-gray-100 overflow-auto"}>
@@ -219,7 +225,8 @@ function PagePart({ componentStr, onReplace }: { componentStr: string; onReplace
   }
 
   if (componentStr.startsWith('bilingual-')) {
-    const language = componentStr.substring('bilingual-'.length);
+    const slug = componentStr.substring('bilingual-'.length);
+    const language = translationLanguageNameForCode(slug) ?? slug;
     const validLanguage = (languages as readonly string[]).includes(language) ? language : languages[0];
     return (
       <div className={cardClass + " flex-1/2 bg-gray-100/80 dark:bg-gray-900/60 text-gray-900 dark:text-gray-100 overflow-auto"}>
@@ -249,7 +256,7 @@ function PagePart({ componentStr, onReplace }: { componentStr: string; onReplace
 // Layout page: render the selected layout from URL
 /**
  * The layout URL grammar: `|` separates columns, `,` stacks panes within a column.
- * "translatedText-French,currentSlide|listen-fr" => [["translatedText-French", "currentSlide"], ["listen-fr"]]
+ * "translatedText-fr,currentSlide|listen-en" => [["translatedText-fr", "currentSlide"], ["listen-en"]]
  *
  * Columns sit side by side on a wide screen and stack on a narrow one. This is the
  * definition; docs/LAYOUT_URLS.md has worked examples for people building a URL by hand.
