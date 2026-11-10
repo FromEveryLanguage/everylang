@@ -52,6 +52,8 @@ Short, surfaced-not-comprehensive documentation. Coding agents can grep; humans 
 
 - [PROCLAIM_INTEGRATION.md](PROCLAIM_INTEGRATION.md), [PROCLAIM_DATA_FORMAT.md](PROCLAIM_DATA_FORMAT.md),
   [PROCLAIM_SERVICE_SETUP.md](PROCLAIM_SERVICE_SETUP.md) — Proclaim sync service.
+- [PROCLAIM_SLIDE_OCR.md](PROCLAIM_SLIDE_OCR.md) — getting exact slide text by OCRing the
+  local API's rendered slide images (exploratory; not used yet).
 - [DUMP_DOCS.md](DUMP_DOCS.md) — Yjs doc dumper: bulk end-state JSON extraction across every
   day's doc. Knows about fewer keys than the doc holds; `sessionExport.ts` is the reader that
   tracks it most closely.
