@@ -53,6 +53,24 @@ describe('StatusView', () => {
     expect(screen.getByText(/update pending/i)).toBeInTheDocument();
   });
 
+  it('turns the live-audio tile red with Gemini\'s own words on a billing refusal', () => {
+    render(
+      <StatusView
+        docId="doc-2026-10-25"
+        statusEntries={{
+          liveAudio: {
+            kind: 'billing',
+            language: 'fr',
+            message: 'Your prepayment credits are depleted.',
+            at: 0,
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText(/billing problem/i)).toBeInTheDocument();
+    expect(screen.getByText('Your prepayment credits are depleted.')).toBeInTheDocument();
+  });
+
   it('reports how many components are heartbeating once the status map fills', () => {
     render(
       <StatusView

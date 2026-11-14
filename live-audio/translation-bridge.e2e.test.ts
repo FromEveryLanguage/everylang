@@ -1041,4 +1041,57 @@ describe("TranslationBridge (end-to-end, faked LiveKit + Gemini)", () => {
     expect((translationConfig as { targetLanguageCode: string }).targetLanguageCode).toBe("fr");
     await bridge.stop();
   });
+
+  describe("Gemini errors in health (for the /status tile)", () => {
+    /** Make a fake socket's close carry a reason, as a real Gemini close frame may. */
+    const closeWithReason = (socket: FakeGeminiSocket, code: number, reason: string) => {
+      socket.close = function (this: FakeGeminiSocket) {
+        this.readyState = 3;
+        this.emit("close", code, Buffer.from(reason));
+      };
+    };
+
+    it("reports a billing refusal, and clears it once a session sets up", async () => {
+      const { bridge, seated: mic } = await boot((room) => room.seatOrganizer(ORGANIZER));
+      const [old] = FakeGeminiSocket.instances;
+      await speakVoice(mic, 1);
+      old.readyState = 3;
+      old.emit("close", 1011, Buffer.from("Your prepayment credits are depleted."));
+      expect(bridge.health().lastGeminiError).toMatchObject({ code: 1011, kind: "billing" });
+
+      await vi.advanceTimersByTimeAsync(50); // the reconnect sets up
+      expect(bridge.health().lastGeminiError).toBeNull();
+      await bridge.stop();
+    });
+
+    it("doesn't report a socket the bridge closed itself, whatever its close frame says", async () => {
+      const { bridge, seated: mic } = await boot((room) => room.seatOrganizer(ORGANIZER));
+      const [old] = FakeGeminiSocket.instances;
+      await speakVoice(mic, 1);
+      // A goAway swap: the bridge closes the old socket once the replacement is up.
+      closeWithReason(old, 1000, "Client closed the connection");
+      old.emit("message", Buffer.from(JSON.stringify({ goAway: { timeLeft: "50s" } })));
+      await vi.advanceTimersByTimeAsync(50);
+      expect(FakeGeminiSocket.instances).toHaveLength(2);
+      expect(old.readyState).toBe(3);
+      expect(bridge.health().lastGeminiError).toBeNull();
+
+      // And stopping: the bridge closes the active one.
+      closeWithReason(FakeGeminiSocket.instances[1], 1000, "Client closed the connection");
+      await bridge.stop();
+      expect(bridge.health().lastGeminiError).toBeNull();
+    });
+
+    it("doesn't report a session ending on schedule after its goAway", async () => {
+      const { bridge, seated: mic } = await boot((room) => room.seatOrganizer(ORGANIZER));
+      const [old] = FakeGeminiSocket.instances;
+      await speakVoice(mic, 1);
+      old.emit("message", Buffer.from(JSON.stringify({ goAway: { timeLeft: "1s" } })));
+      // Gemini ends it before the replacement has set up.
+      old.readyState = 3;
+      old.emit("close", 1000, Buffer.from("Session duration limit reached"));
+      expect(bridge.health().lastGeminiError).toBeNull();
+      await bridge.stop();
+    });
+  });
 });
