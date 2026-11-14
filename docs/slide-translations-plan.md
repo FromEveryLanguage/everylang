@@ -386,3 +386,22 @@ review screen writes `reviewed` edits straight into `slideTranslations` (and sti
 POSTs to the library for persistence), and the Python service's seed now
 **protects existing `reviewed` entries** rather than overwriting them. See "Two tiers"
 and Phase C above.
+
+**The `reviewed`/`auto` tier, removed (post-build).** Everything above that turns on a
+stored `status: 'reviewed' | 'auto'` (and its `reviewedAt` stamp) is history: the field is
+gone. It never earned its keep. Viewers were shown "unreviewed" on text nobody was going to
+fix mid-service, which is noise they can't act on. What replaced it:
+
+- `SlideTranslationEntry` is `{ text, provenance }`. Nothing branches on `provenance`.
+  `'imported'` and `'llm-agent'` went with the tier (no writer left, and an agent follow-up
+  is as much `llm` as the first draft).
+- `resolveSlideTranslation` returns the first entry along the fallback chain. A Creole
+  viewer with no Creole text now sees the French one whatever produced it; before, an
+  unreviewed French text was withheld and the slide read "(not translated)".
+- The library is still the durable tier and still holds only what a human saved. The
+  review screen's chip says **Saved**: it is about persistence, not quality. Old library
+  files keep their `status`/`reviewedAt` fields on disk; nothing reads them.
+- The server's translate-ahead (`storeTranslations` in `slideSync.ts`) **fills missing keys
+  only**. Keys are content-addressed, so an existing entry already translates this exact
+  text, and it may be a reviewer's save or an agent follow-up's revision that a fresh
+  draft must not undo. "Protect reviewed" was a special case of that rule.

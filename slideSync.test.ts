@@ -126,20 +126,22 @@ describe('storeTranslations', () => {
   it('writes content-addressed entries and skips empty slides', () => {
     const doc = new Y.Doc();
     storeTranslations(doc, ['Hello', ' '], {
-      French: [{ text: 'Bonjour', status: 'auto', provenance: 'llm' }, { text: 'x', status: 'auto', provenance: 'llm' }],
+      French: [{ text: 'Bonjour', provenance: 'llm' }, { text: 'x', provenance: 'llm' }],
     });
     const map = doc.getMap('slideTranslations');
-    expect(map.get(slideTranslationKey('French', 'Hello'))).toEqual({ text: 'Bonjour', status: 'auto', provenance: 'llm' });
+    expect(map.get(slideTranslationKey('French', 'Hello'))).toEqual({ text: 'Bonjour', provenance: 'llm' });
     expect(map.size).toBe(1);
   });
 
-  it('never overwrites a reviewed entry', () => {
+  it('never overwrites an existing entry', () => {
+    // A reviewer's save and an agent follow-up's revision look alike here; a fresh draft
+    // of the same source text must not undo either.
     const doc = new Y.Doc();
     const key = slideTranslationKey('French', 'Hello');
-    const reviewed = { text: 'Salut', status: 'reviewed', provenance: 'human' };
-    doc.getMap('slideTranslations').set(key, reviewed);
-    storeTranslations(doc, ['Hello'], { French: [{ text: 'Bonjour', status: 'auto', provenance: 'llm' }] });
-    expect(doc.getMap('slideTranslations').get(key)).toEqual(reviewed);
+    const existing = { text: 'Salut', provenance: 'llm' };
+    doc.getMap('slideTranslations').set(key, existing);
+    storeTranslations(doc, ['Hello'], { French: [{ text: 'Bonjour', provenance: 'llm' }] });
+    expect(doc.getMap('slideTranslations').get(key)).toEqual(existing);
   });
 });
 
@@ -152,7 +154,7 @@ describe('scanOrder', () => {
 
 describe('TranslateAhead', () => {
   const echo: TranslateItemFn = async ({ slides }) => ({
-    French: slides.map((s) => ({ text: `fr:${s}`, status: 'auto' as const, provenance: 'llm' as const })),
+    French: slides.map((s) => ({ text: `fr:${s}`, provenance: 'llm' as const })),
   });
 
   it('translates every missing item, active first', async () => {
@@ -167,7 +169,7 @@ describe('TranslateAhead', () => {
   it('spends nothing on an item the synced doc already covers', async () => {
     const doc = new Y.Doc();
     for (const s of ['One', 'Two', 'Three']) {
-      doc.getMap('slideTranslations').set(slideTranslationKey('French', s), { text: s, status: 'reviewed', provenance: 'human' });
+      doc.getMap('slideTranslations').set(slideTranslationKey('French', s), { text: s, provenance: 'human' });
     }
     const translate = vi.fn(echo);
     await new TranslateAhead(doc, 'doc-x', ['French'], translate).offer(snap());

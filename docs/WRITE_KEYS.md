@@ -17,7 +17,7 @@ device is given a key once and keeps it.
 | `POST /api/livekit/token` as a listener | no |
 | `POST /api/translateItem`, `/api/slideConversation/message`, `/api/slideConversation/note` | yes |
 | `POST /api/requestTranslatedBlocks` | yes |
-| `POST /api/slideLibrary` (upsert a reviewed translation) | yes |
+| `POST /api/slideLibrary` (upsert a saved translation) | yes |
 | `GET /api/slideLibrary`, `POST /api/slideLibrary/lookup` | no |
 | `POST /api/tts`, `POST /api/livekit/translate` | no — **viewers call these** |
 

@@ -71,7 +71,7 @@ describe('SlideReview', () => {
     expect(onSaveCell).toHaveBeenCalledWith('French', 0);
   });
 
-  it('marks a cell reviewed and disables Save when the draft matches the saved text', () => {
+  it('marks a cell saved and disables Save when the draft matches the saved text', () => {
     render(
       <SlideReview
         {...baseProps}
@@ -81,7 +81,7 @@ describe('SlideReview', () => {
         onSaveCell={vi.fn()}
       />,
     );
-    expect(screen.getByText(/Reviewed/)).toBeInTheDocument();
+    expect(screen.getByText(/✓ Saved/)).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Save' })[0]).toBeDisabled();
   });
 

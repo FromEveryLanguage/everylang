@@ -142,15 +142,13 @@ export interface AppStrings {
   referenceCheckAgent: string;
   referenceCheckSimilarityTitle: string;
   save: string;
-  saveAll: string;
   saving: string;
-  statusReviewed: string;
+  statusSaved: string;
   statusUnsaved: string;
   reviewSourceHeader: string;
   noSlidesToReview: string;
   editorOnlyReview: string;
   reviewSlidesLink: string;
-  unreviewedBadge: string;
   conversationHeader: string;
   noConversation: string;
   followUpPlaceholder: string;
@@ -292,15 +290,13 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     referenceCheckAgent: 'Translation’s wording',
     referenceCheckSimilarityTitle: 'How much of the published wording the translation kept',
     save: 'Save',
-    saveAll: 'Save all reviewed',
     saving: 'Saving…',
-    statusReviewed: 'Reviewed',
+    statusSaved: 'Saved',
     statusUnsaved: 'Unsaved',
     reviewSourceHeader: 'Source',
     noSlidesToReview: 'Select a service item, or load the on-air item, to review its slides.',
     editorOnlyReview: 'Open this page with #editor to edit and save translations.',
     reviewSlidesLink: 'Review Slide Translations',
-    unreviewedBadge: 'unreviewed',
     conversationHeader: 'Agent conversation',
     noConversation: 'No conversation yet — Re-translate to start one.',
     followUpPlaceholder: 'Ask a question or give feedback…',
@@ -436,15 +432,13 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     referenceCheckAgent: 'Formulation de la traduction',
     referenceCheckSimilarityTitle: 'Part du texte publié conservée par la traduction',
     save: 'Enregistrer',
-    saveAll: 'Tout enregistrer',
     saving: 'Enregistrement…',
-    statusReviewed: 'Révisé',
+    statusSaved: 'Enregistré',
     statusUnsaved: 'Non enregistré',
     reviewSourceHeader: 'Source',
     noSlidesToReview: 'Choisissez un élément du service, ou chargez l’élément à l’antenne, pour réviser ses diapositives.',
     editorOnlyReview: 'Ouvrez cette page avec #editor pour modifier et enregistrer les traductions.',
     reviewSlidesLink: 'Réviser les traductions de diapositives',
-    unreviewedBadge: 'non révisé',
     conversationHeader: 'Conversation avec l’agent',
     noConversation: 'Aucune conversation pour l’instant — cliquez sur Retraduire pour en démarrer une.',
     followUpPlaceholder: 'Posez une question ou donnez un retour…',
@@ -580,15 +574,13 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     referenceCheckAgent: 'Redacci\u00f3n de la traducci\u00f3n',
     referenceCheckSimilarityTitle: 'Cu\u00e1nto del texto publicado conserv\u00f3 la traducci\u00f3n',
     save: 'Guardar',
-    saveAll: 'Guardar todo',
     saving: 'Guardando\u2026',
-    statusReviewed: 'Revisado',
+    statusSaved: 'Guardado',
     statusUnsaved: 'Sin guardar',
     reviewSourceHeader: 'Fuente',
     noSlidesToReview: 'Seleccione un elemento del servicio, o cargue el elemento al aire, para revisar sus diapositivas.',
     editorOnlyReview: 'Abra esta p\u00e1gina con #editor para editar y guardar traducciones.',
     reviewSlidesLink: 'Revisar traducciones de diapositivas',
-    unreviewedBadge: 'sin revisar',
     conversationHeader: 'Conversación con el agente',
     noConversation: 'Aún no hay conversación — pulse Retraducir para iniciar una.',
     followUpPlaceholder: 'Haga una pregunta o dé su opinión…',
@@ -724,15 +716,13 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     referenceCheckAgent: 'Fason tradiksyon an di li',
     referenceCheckSimilarityTitle: 'Konbyen nan tèks pibliye a tradiksyon an kenbe',
     save: 'Anrejistre',
-    saveAll: 'Anrejistre tout',
     saving: 'Ap anrejistre…',
-    statusReviewed: 'Revize',
+    statusSaved: 'Anrejistre',
     statusUnsaved: 'Pa anrejistre',
     reviewSourceHeader: 'Sous',
     noSlidesToReview: 'Chwazi yon eleman nan sèvis la, oswa chaje eleman k ap pase a, pou revize diapozitiv li yo.',
     editorOnlyReview: 'Ouvri paj sa a ak #editor pou modifye ak anrejistre tradiksyon.',
     reviewSlidesLink: 'Revize Tradiksyon Diapozitiv',
-    unreviewedBadge: 'pa revize',
     conversationHeader: 'Konvèsasyon ak ajan an',
     noConversation: 'Poko gen konvèsasyon — klike Retradui pou kòmanse youn.',
     followUpPlaceholder: 'Poze yon kesyon oswa bay yon kòmantè…',

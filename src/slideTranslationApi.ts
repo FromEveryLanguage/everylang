@@ -73,7 +73,7 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
-/** Fetch all reviewed library entries. */
+/** Fetch all saved library entries. */
 export async function fetchLibrary(): Promise<SlideLibraryRecord[]> {
   const response = await apiFetch('/api/slideLibrary');
   if (!response.ok) throw new Error(`/api/slideLibrary failed: ${response.status}`);
@@ -81,7 +81,7 @@ export async function fetchLibrary(): Promise<SlideLibraryRecord[]> {
   return data.entries;
 }
 
-/** Look up reviewed entries for a language, aligned with `texts` (null = no entry). */
+/** Look up saved entries for a language, aligned with `texts` (null = no entry). */
 export async function lookupLibrary(
   language: string,
   texts: string[],
@@ -93,7 +93,7 @@ export async function lookupLibrary(
   return data.entries;
 }
 
-/** Upsert a reviewed translation into the library. */
+/** Upsert a translation into the library. */
 export async function upsertLibraryEntry(input: {
   language: string;
   sourceText: string;
@@ -105,7 +105,7 @@ export async function upsertLibraryEntry(input: {
 }
 
 /**
- * Translate a whole item: per language, reviewed-or-auto for every slide.
+ * Translate a whole item: per language, a translation for every slide.
  *
  * `reference` is an optional free-text dump (possibly multilingual) the model uses where
  * it covers a target language and ignores otherwise.
