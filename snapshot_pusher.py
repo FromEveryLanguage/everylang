@@ -12,12 +12,19 @@ can tell a quiet service from a dead one. A failed POST is retried with backoff,
 the invariant is the launch wrapper's — keep running — and the next success fixes
 everything, because it carries everything.
 
+The body is gzipped. A snapshot carries every item's slides (~30 KB for a real service) to
+move one slide index, and it is sent on every change and every heartbeat; gzip makes that
+~7 KB. The server's ``express.json`` inflates it with no code of its own (body-parser decodes
+``Content-Encoding``), so nothing there had to change to accept it. gzip rather than brotli
+because it is in the standard library on the Proclaim Mac; brotli was only ~17% smaller.
+
 The server answers with the doc the slides went to and whether this machine is the one
 being followed. Both are logged when they change; neither changes what this loop does.
 """
 
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import uuid
@@ -28,7 +35,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 import anyio
 import httpx
 
-from slide_feed import FeedSnapshot, SlideFeed
+from slide_feed import FeedSnapshot, SlideFeed, content_key
 from write_key import write_key_headers
 
 logger = logging.getLogger(__name__)
@@ -46,12 +53,6 @@ class PusherTiming:
     backoff_max: float = 30.0
     request_timeout: float = 15.0
 
-
-def _content_key(snap: FeedSnapshot) -> str:
-    """What makes two snapshots "the same" for sending purposes: everything but ``seq``."""
-    body = snap.to_json()
-    body.pop('seq', None)
-    return json.dumps(body, sort_keys=True)
 
 
 class HttpSnapshotPusher:
@@ -97,7 +98,12 @@ class HttpSnapshotPusher:
     async def _http_post(self, url: str, body: Dict[str, Any], headers: Dict[str, str]) -> Dict[str, Any]:
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=self.timing.request_timeout)
-        response = await self._client.post(url, json=body, headers=headers)
+        content = gzip.compress(json.dumps(body).encode('utf-8'), compresslevel=6)
+        response = await self._client.post(url, content=content, headers={
+            **headers,
+            'Content-Type': 'application/json',
+            'Content-Encoding': 'gzip',
+        })
         response.raise_for_status()
         answer = response.json()
         if not isinstance(answer, dict):
@@ -164,15 +170,21 @@ class HttpSnapshotPusher:
         last_key: Optional[str] = None
         last_sent = float('-inf')
         backoff = self.timing.backoff_initial
+        # A failure delays the next *send*, never the next *poll*: the feed may be wrapped in
+        # a recorder (``--record``), and a server refusing the write key must not leave holes
+        # in the recording. When the retry comes due it sends whatever is current by then.
+        retry_at = float('-inf')
         while True:
             snap = await self.feed.poll()
-            key = _content_key(snap)
+            key = content_key(snap)
             now = anyio.current_time()
-            if key != last_key or now - last_sent >= self.timing.heartbeat_interval:
+            due = key != last_key or now - last_sent >= self.timing.heartbeat_interval
+            if due and now >= retry_at:
                 try:
                     await self.push(snap)
                     last_key, last_sent = key, now
                     backoff = self.timing.backoff_initial
+                    retry_at = float('-inf')
                 except (httpx.HTTPError, ValueError) as e:
                     detail = (
                         f"HTTP {e.response.status_code}" if isinstance(e, httpx.HTTPStatusError)
@@ -181,15 +193,13 @@ class HttpSnapshotPusher:
                     if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 401:
                         detail += " — the server refused this machine's write key"
                     logger.warning(f"Could not send snapshot ({detail}); retrying in {backoff:.0f}s")
-                    await anyio.sleep(backoff)
+                    retry_at = anyio.current_time() + backoff
                     backoff = min(backoff * 2, self.timing.backoff_max)
-                    continue
                 except Exception as e:  # never let one bad cycle end the service
                     logger.error(f"Unexpected error sending snapshot: {e}", exc_info=True)
                     self._report_exception(e)
-                    await anyio.sleep(backoff)
+                    retry_at = anyio.current_time() + backoff
                     backoff = min(backoff * 2, self.timing.backoff_max)
-                    continue
             await anyio.sleep(
                 self.timing.poll_interval if snap.on_air else self.timing.poll_interval_off_air
             )

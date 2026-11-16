@@ -182,3 +182,38 @@ def test_normalize_slide_text_matches_ts_behavior():
 def test_slide_translation_key_combines_language_and_normalized_text():
     assert slide_translation_key('French', '  Bonjour  ') == 'French:Bonjour'
     assert slide_translation_key('French', 'Bonjour\n') == slide_translation_key('French', 'Bonjour')
+
+
+def song_item(title_settings, lyrics_lines=('Verse 1', 'Amazing grace', '', 'Chorus', 'My chains are gone')):
+    content = {'_richtextfield:Lyrics': richtext(list(lyrics_lines)), 'SongDisplayTitle': 'Amazing Grace'}
+    content.update(title_settings)
+    return {'ServiceItemKind': 'SongLyrics', 'Title': 'Amazing Grace', 'Content': json.dumps(content)}
+
+
+def song_slides(title_settings):
+    return parse_item_original(FakeDB({'song1': song_item(title_settings)}), 'song1').slides
+
+
+def test_song_title_slide_first_when_title_slide_is_title():
+    assert song_slides({'ShowTitle': 'true', 'TitleSlide': 'Title'}) == [
+        'Amazing Grace', 'Amazing grace', 'My chains are gone',
+    ]
+
+
+def test_song_title_slide_last_when_title_slide_is_final():
+    assert song_slides({'ShowTitle': 'true', 'TitleSlide': 'Final'}) == [
+        'Amazing grace', 'My chains are gone', 'Amazing Grace',
+    ]
+
+
+def test_song_has_no_title_slide_when_show_title_is_off():
+    assert song_slides({'ShowTitle': 'false', 'TitleSlide': 'Title'}) == [
+        'Amazing grace', 'My chains are gone',
+    ]
+
+
+def test_song_has_no_title_slide_when_title_overlays_lyrics():
+    for mode in ('FirstLyric', 'Every'):
+        assert song_slides({'ShowTitle': 'true', 'TitleSlide': mode}) == [
+            'Amazing grace', 'My chains are gone',
+        ]

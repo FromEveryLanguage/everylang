@@ -228,12 +228,23 @@ function recordBibleLookup(call: BibleToolCall, conversationId: string, docId: s
 const writeAuthConfig = resolveWriteAuthConfig(process.env);
 for (const notice of writeAuthConfig.notices) console.log(notice);
 
+// The (route, key) pairs already logged as ok. A key that works keeps working, so after
+// its first success the line says nothing new — and the Proclaim heartbeat alone was
+// ~6,600 of them a month, burying the refusals this log exists to show.
+const writeAuthOkLogged = new Set<string>();
+
 const writeAuth = new WriteAuth(writeAuthConfig, (audit) => {
-  // Log every outcome, and mirror it to PostHog so the observe week can be read as a
-  // chart ("is the Proclaim service presenting a key yet?") rather than by grepping.
+  // Log every refusal (and each key's first success per route), and mirror every
+  // outcome to PostHog so the observe week can be read as a chart ("is the Proclaim
+  // service presenting a key yet?") rather than by grepping.
   const line = formatAudit(audit);
-  if (audit.status === 'ok') console.log(line);
-  else console.warn(line);
+  if (audit.status === 'ok') {
+    const seen = `${audit.route} ${audit.label}`;
+    if (!writeAuthOkLogged.has(seen)) {
+      writeAuthOkLogged.add(seen);
+      console.log(`${line} (first ok for this key here; later ones not logged)`);
+    }
+  } else console.warn(line);
   phClient.capture({
     distinctId: auditDistinctId(audit),
     event: 'write_auth_check',

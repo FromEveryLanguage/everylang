@@ -14,6 +14,7 @@ reads, no asserts) so it can be imported in unit tests without a configured envi
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
@@ -129,6 +130,17 @@ class FeedSnapshot:
             active_slide_index=data.get('activeSlideIndex'),
             seq=data.get('seq', 0),
         )
+
+
+def content_key(snap: FeedSnapshot) -> str:
+    """What makes two snapshots "the same": everything but ``seq``, which moves every poll.
+
+    The pusher sends only on a change (plus heartbeats) and the recorder writes only on a
+    change, both by this key.
+    """
+    body = snap.to_json()
+    body.pop('seq', None)
+    return json.dumps(body, sort_keys=True)
 
 
 @runtime_checkable
