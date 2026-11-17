@@ -1,7 +1,7 @@
 """Tests for ProclaimFeed: snapshot production, revision-gated re-parse, session date,
 and existing-translation grounding. The Proclaim HTTP calls and DB are faked."""
 
-from datetime import date
+from datetime import date, datetime, timezone
 from unittest import mock
 
 import pytest
@@ -13,10 +13,10 @@ from proclaim_lib import ServiceItemWithSlides
 pytestmark = pytest.mark.anyio
 
 
-def make_feed(order_sync_interval: float = 0.0, revision_settle_window: float = 0.0) -> ProclaimFeed:
+def make_feed(order_sync_interval: float = 0.0, revision_settle_timeout: float = 0.0) -> ProclaimFeed:
     """Build a feed with the DB faked and the order always eligible to sync.
 
-    The settle window defaults to 0 here so tests that aren't about it see exactly one
+    The settle timeout defaults to 0 here so tests that aren't about it see exactly one
     re-parse per revision change.
     """
     db = mock.MagicMock()
@@ -24,8 +24,14 @@ def make_feed(order_sync_interval: float = 0.0, revision_settle_window: float = 
     return ProclaimFeed(
         db=db,
         order_sync_interval=order_sync_interval,
-        revision_settle_window=revision_settle_window,
+        revision_settle_timeout=revision_settle_timeout,
     )
+
+
+def ticks(iso: str) -> int:
+    """A UTC ISO time as .NET ticks, the unit of Proclaim's localRevision."""
+    moment = datetime.fromisoformat(iso).replace(tzinfo=timezone.utc)
+    return 621355968000000000 + round(moment.timestamp() * 10_000_000)
 
 
 def onair_status(item_id="i1", slide_index=0, presentation_id="pres-1"):
@@ -87,63 +93,163 @@ async def test_poll_syncs_order_and_caches_revisions():
         assert calls == ["i1", "i2", "i1"]
 
 
-def test_lagging_db_write_is_picked_up_within_settle_window():
-    """The API bumps the revision before Proclaim writes the DB row: the first re-read sees
-    the old Content, so the item keeps being re-read until the window closes."""
-    feed = make_feed(revision_settle_window=10.0)
-    presentation = presentation_with([
-        {"id": "i1", "title": "Song", "kind": "SongLyrics", "slides": [{"localRevision": 1}]},
+class FakeRow:
+    """The ServiceItems row an edit is racing: its slides and Modified, set by the test."""
+
+    def __init__(self, slides, modified):
+        self.slides = list(slides)
+        self.modified = modified
+        self.reads = 0
+
+    def parse(self, _db, item_id):
+        self.reads += 1
+        return ServiceItemWithSlides(item_id, "Song", list(self.slides), "SongLyrics", self.modified)
+
+
+def song_at(*revision_isos):
+    return presentation_with([
+        {"id": "i1", "title": "Song", "kind": "SongLyrics",
+         "slides": [{"localRevision": ticks(iso)} for iso in revision_isos]},
     ])
-    db_slides = ["Verse"]
-    calls = []
 
-    def fake_parse(_db, item_id):
-        calls.append(item_id)
-        return ServiceItemWithSlides(item_id, "Song", list(db_slides), "SongLyrics")
 
-    with mock.patch.object(pf, "parse_item_original", fake_parse):
-        feed._sync_order(presentation, now=0.0)
-        # Past the first sighting's window: settled, no re-read.
-        feed._sync_order(presentation, now=20.0)
-        assert len(calls) == 1
+def test_lagging_db_write_is_reread_until_modified_catches_up():
+    """Timings from a real edit (2026-11-16): the API's revision moved to 22:11:40.574 while
+    the row still said Modified 22:02:47; the row landed a second or two later as 22:11:40.
+    The item is re-read until then, and not after."""
+    feed = make_feed(revision_settle_timeout=30.0)
+    row = FakeRow(["Verse"], "2026-11-16T22:02:47Z")
 
-        # Operator adds a title slide: revision moves, DB still has the old row.
-        presentation["serviceItems"][0]["slides"].append({"localRevision": 2})
-        feed._sync_order(presentation, now=30.0)
+    with mock.patch.object(pf, "parse_item_original", row.parse):
+        feed._sync_order(song_at("2026-11-16T22:02:47.456"), now=0.0)
+        feed._sync_order(song_at("2026-11-16T22:02:47.456"), now=2.0)
+        assert row.reads == 1
+
+        # The operator edits: the API moves, the row hasn't been written yet.
+        edited = song_at("2026-11-16T22:11:40.574")
+        feed._sync_order(edited, now=10.0)
+        feed._sync_order(edited, now=12.0)
         assert feed._items["i1"].slides == ["Verse"]
+        assert row.reads == 3
 
-        # DB catches up; the same revision is re-read inside the window.
-        db_slides[:] = ["Song", "Verse"]
-        feed._sync_order(presentation, now=32.0)
+        # The row lands, in the same (whole) second as the revision.
+        row.slides, row.modified = ["Song", "Verse"], "2026-11-16T22:11:40Z"
+        feed._sync_order(edited, now=14.0)
         assert feed._items["i1"].slides == ["Song", "Verse"]
-        assert len(calls) == 3
 
-        # Window closed: back to trusting the revision.
-        feed._sync_order(presentation, now=41.0)
-        feed._sync_order(presentation, now=43.0)
-        assert len(calls) == 3
+        # Settled on evidence, long before the timeout: no more re-reads.
+        feed._sync_order(edited, now=16.0)
+        assert row.reads == 4
 
 
-def test_settle_window_restarts_on_each_revision_change():
-    """A second edit inside the window extends re-reading from that edit."""
-    feed = make_feed(revision_settle_window=10.0)
-    presentation = presentation_with([
-        {"id": "i1", "title": "X", "kind": "Content", "slides": [{"localRevision": 1}]},
-    ])
-    calls = []
+def test_row_already_written_settles_on_the_first_reread():
+    """If the row has landed by the time the revision change is seen, one read is enough."""
+    feed = make_feed(revision_settle_timeout=30.0)
+    row = FakeRow(["Verse"], "2026-11-16T22:02:47Z")
 
-    def fake_parse(_db, item_id):
-        calls.append(item_id)
-        return ServiceItemWithSlides(item_id, "X", ["A"], "Content")
+    with mock.patch.object(pf, "parse_item_original", row.parse):
+        feed._sync_order(song_at("2026-11-16T22:02:47.456"), now=0.0)
+        row.modified = "2026-11-16T22:11:40Z"
+        feed._sync_order(song_at("2026-11-16T22:11:40.574"), now=10.0)
+        feed._sync_order(song_at("2026-11-16T22:11:40.574"), now=12.0)
+        assert row.reads == 2
 
-    with mock.patch.object(pf, "parse_item_original", fake_parse):
-        feed._sync_order(presentation, now=0.0)
-        presentation["serviceItems"][0]["slides"][0]["localRevision"] = 2
-        feed._sync_order(presentation, now=8.0)
-        feed._sync_order(presentation, now=15.0)  # inside the window opened at 8
-        assert len(calls) == 3
-        feed._sync_order(presentation, now=18.0)
-        assert len(calls) == 3
+
+def test_title_slide_toggle_settles_when_modified_changes():
+    """Timings from a real title-slide toggle (2026-11-16): the API's revision moved to
+    23:05:19.898, but the row that landed said Modified 23:05:18, before the revision, so
+    "Modified reached the revision" never comes true. Modified *changing* (from 23:05:02)
+    is what shows the row landed."""
+    feed = make_feed(revision_settle_timeout=30.0)
+    row = FakeRow(["Title", "Verse"], "2026-11-16T23:05:02Z")
+
+    with mock.patch.object(pf, "parse_item_original", row.parse):
+        feed._sync_order(song_at("2026-11-16T23:05:02.500"), now=0.0)
+
+        toggled = song_at("2026-11-16T23:05:19.898")
+        feed._sync_order(toggled, now=10.0)
+        feed._sync_order(toggled, now=11.0)
+        assert feed._items["i1"].slides == ["Title", "Verse"]
+        assert "i1" in feed._awaiting
+
+        row.slides, row.modified = ["Verse"], "2026-11-16T23:05:18Z"
+        feed._sync_order(toggled, now=12.0)
+        assert feed._items["i1"].slides == ["Verse"]
+        assert "i1" not in feed._awaiting
+
+        feed._sync_order(toggled, now=13.0)
+        assert row.reads == 4
+
+
+def test_double_bump_before_the_row_lands_settles_on_the_one_write():
+    """One real edit bumped the revision twice (22:11:39.275, then 22:11:40.574) before its
+    single row write (Modified 22:11:40). The second bump restarts the wait; the write ends it."""
+    feed = make_feed(revision_settle_timeout=30.0)
+    row = FakeRow(["Verse"], "2026-11-16T22:02:47Z")
+
+    with mock.patch.object(pf, "parse_item_original", row.parse):
+        feed._sync_order(song_at("2026-11-16T22:02:47.456"), now=0.0)
+        feed._sync_order(song_at("2026-11-16T22:11:39.275"), now=10.0)
+        feed._sync_order(song_at("2026-11-16T22:11:40.574"), now=11.0)
+        assert "i1" in feed._awaiting
+
+        row.slides, row.modified = ["Verse 2"], "2026-11-16T22:11:40Z"
+        feed._sync_order(song_at("2026-11-16T22:11:40.574"), now=13.0)
+        assert "i1" not in feed._awaiting
+        assert feed._items["i1"].slides == ["Verse 2"]
+
+
+def test_another_edit_after_settling_waits_again():
+    """Settling isn't permanent: the next revision change starts a new wait, measured
+    against the Modified the feed last read."""
+    feed = make_feed(revision_settle_timeout=30.0)
+    row = FakeRow(["A"], "2026-11-16T22:02:47Z")
+
+    with mock.patch.object(pf, "parse_item_original", row.parse):
+        feed._sync_order(song_at("2026-11-16T22:02:47.456"), now=0.0)
+        row.slides, row.modified = ["B"], "2026-11-16T22:11:40Z"
+        feed._sync_order(song_at("2026-11-16T22:11:40.574"), now=10.0)
+        assert "i1" not in feed._awaiting
+
+        feed._sync_order(song_at("2026-11-16T22:20:00.100"), now=20.0)
+        assert "i1" in feed._awaiting  # 22:11:40 is the baseline now; nothing new yet
+        row.slides, row.modified = ["C"], "2026-11-16T22:19:59Z"
+        feed._sync_order(song_at("2026-11-16T22:20:00.100"), now=22.0)
+        assert "i1" not in feed._awaiting
+        assert feed._items["i1"].slides == ["C"]
+
+
+def test_timeout_ends_the_wait_when_modified_never_catches_up():
+    """A revision bump with no row write can't settle on evidence (Modified neither changes
+    nor reaches the revision); the timeout stops the re-reading."""
+    feed = make_feed(revision_settle_timeout=30.0)
+    row = FakeRow(["Verse"], "2026-11-16T22:02:47Z")
+
+    with mock.patch.object(pf, "parse_item_original", row.parse):
+        feed._sync_order(song_at("2026-11-16T22:02:47.456"), now=0.0)
+        edited = song_at("2026-11-16T22:11:40.574")
+        feed._sync_order(edited, now=10.0)
+        feed._sync_order(edited, now=25.0)
+        assert row.reads == 3
+        feed._sync_order(edited, now=40.0)  # deadline: read once more, then stop
+        feed._sync_order(edited, now=42.0)
+        assert row.reads == 4
+        assert "i1" not in feed._awaiting
+
+
+def test_first_sighting_does_not_wait_on_a_stale_looking_modified():
+    """Opening a presentation re-stamps every localRevision without rewriting the rows, so an
+    unedited item's revision can be hours past its Modified. Seen for the first time, it is
+    read once and trusted, not held waiting for a write that isn't coming."""
+    feed = make_feed(revision_settle_timeout=30.0)
+    row = FakeRow(["Gather"], "2026-11-16T18:04:39Z")
+
+    with mock.patch.object(pf, "parse_item_original", row.parse):
+        feed._sync_order(song_at("2026-11-16T21:50:31.352"), now=0.0)
+        feed._sync_order(song_at("2026-11-16T21:50:31.352"), now=2.0)
+
+    assert row.reads == 1
+    assert feed._awaiting == {}
 
 
 async def test_poll_force_syncs_when_active_item_uncached():
@@ -235,7 +341,8 @@ def test_reset_clears_caches():
     feed = make_feed()
     feed._items = {"i1": object()}
     feed._item_revisions = {"i1": "r"}
-    feed._settling_until = {"i1": 5.0}
+    feed._item_modified = {"i1": 0}
+    feed._awaiting = {"i1": (0, 0, 5.0)}
     feed._order = ["i1"]
     feed._session_pres_id = "pres-1"
     feed._translation_screen_idx = 3
@@ -244,7 +351,8 @@ def test_reset_clears_caches():
 
     assert feed._items == {}
     assert feed._item_revisions == {}
-    assert feed._settling_until == {}
+    assert feed._item_modified == {}
+    assert feed._awaiting == {}
     assert feed._order == []
     assert feed._session_pres_id is None
     assert feed._translation_screen_idx is None

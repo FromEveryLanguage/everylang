@@ -14,15 +14,17 @@ from __future__ import annotations
 
 import logging
 from datetime import date
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import anyio
 import httpx
 
 from proclaim_lib import (
     ProclaimDB,
+    dotnet_ticks_to_unix_seconds,
     existing_translation_text,
     get_translation_screen_idx,
+    modified_to_unix_seconds,
     parse_item_original,
     service_item_signatures,
     slides_hash,
@@ -33,12 +35,14 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PROCLAIM_BASE_URL = 'http://127.0.0.1:52195'
 
-# How long after an item's revision changes we keep re-reading it from the DB. Proclaim's
-# API reports a new localRevision as soon as the operator edits an item (e.g. its title
-# slide setting), but the SQLite row can be written later; a single read at the moment the
-# revision moves can see the old Content and would then be cached under the new revision
-# for the rest of the run.
-DEFAULT_REVISION_SETTLE_WINDOW = 10.0
+# The longest we keep re-reading an edited item while waiting for its DB row to catch up
+# with the API. Proclaim's API reports a new localRevision as soon as the operator edits
+# an item, but the SQLite row is written a moment later; a single read when the revision
+# moves can see the old Content, which would then be cached under the new revision for the
+# rest of the run. Normally the row's Modified reaching the new revision ends the wait
+# well before this; the timeout only matters when that evidence never arrives (see
+# ``ProclaimFeed._sync_order``), so it can be generous.
+DEFAULT_REVISION_SETTLE_TIMEOUT = 30.0
 
 
 class ProclaimClient:
@@ -91,10 +95,10 @@ class ProclaimFeed:
 
     ``poll`` never raises on a source problem (an unreachable/off-air Proclaim yields an
     off-air snapshot). Items are re-parsed when their Proclaim ``localRevision``
-    signature changes, and on every order sync for ``revision_settle_window`` seconds
-    after that (the DB can lag the API). ``existing_translation`` grounding is stamped
-    onto each item at parse time so downstream consumers (and, later, a replay feed)
-    need no DB access.
+    signature changes, and keep being re-parsed on every order sync until the DB row
+    shows it has caught up (the DB can lag the API). ``existing_translation`` grounding
+    is stamped onto each item at parse time so downstream consumers (and, later, a
+    replay feed) need no DB access.
     """
 
     def __init__(
@@ -103,13 +107,13 @@ class ProclaimFeed:
         proclaim_base_url: str = DEFAULT_PROCLAIM_BASE_URL,
         db: Optional[ProclaimDB] = None,
         order_sync_interval: float = 2.0,
-        revision_settle_window: float = DEFAULT_REVISION_SETTLE_WINDOW,
+        revision_settle_timeout: float = DEFAULT_REVISION_SETTLE_TIMEOUT,
         report_exception: Optional[Callable[[Exception], None]] = None,
     ):
         self.client = ProclaimClient(proclaim_base_url)
         self.db = db if db is not None else ProclaimDB()
         self.order_sync_interval = order_sync_interval
-        self.revision_settle_window = revision_settle_window
+        self.revision_settle_timeout = revision_settle_timeout
         self._report_exception = report_exception or (lambda _e: None)
         self._seq = 0
         self.reset()
@@ -122,7 +126,11 @@ class ProclaimFeed:
         """Drop all source-side caches (called on doc rollover)."""
         self._items: Dict[str, FeedItem] = {}
         self._item_revisions: Dict[str, str] = {}
-        self._settling_until: Dict[str, float] = {}
+        # item id -> the row's Modified (Unix seconds) at its last successful read
+        self._item_modified: Dict[str, Optional[int]] = {}
+        # item id -> (Modified when the revision change was seen; floor of the newest
+        # revision; deadline). Either Modified value may be None if unknown.
+        self._awaiting: Dict[str, Tuple[Optional[int], Optional[int], float]] = {}
         self._order: List[str] = []
         self._last_order_sync = float('-inf')
         self._presentation_id: Optional[str] = None
@@ -209,11 +217,16 @@ class ProclaimFeed:
     def _sync_order(self, presentation: Dict[str, Any], now: float) -> None:
         """Update the cached order + items from the on-air presentation.
 
-        Items whose Proclaim ``localRevision`` signature changed (or that we haven't seen)
-        are re-read from the DB, and keep being re-read until ``revision_settle_window``
-        has passed since the change, so a DB write that lands after the API's revision bump
-        is still picked up. A DB/parse error for one item is logged and skipped (its
-        revision is left uncached so we retry next sync) rather than dropping the order.
+        Items we haven't seen are read once. When a cached item's ``localRevision``
+        signature changes, it is re-read on every sync until its DB row shows the edit has
+        landed (see ``_settle``) or ``revision_settle_timeout`` passes: the API reports an
+        edit a moment before the row can be read. A further revision change mid-wait
+        starts the wait over. A DB/parse error for one item is logged and skipped (an
+        unseen item stays uncached, so we retry next sync) rather than dropping the order.
+
+        A first sighting doesn't wait: Proclaim re-stamps every slide's localRevision when
+        a presentation is opened without rewriting the rows, so an item nobody has edited
+        can carry a revision hours newer than its Modified, and would never "catch up".
         """
         signatures = service_item_signatures(presentation)
         self._order = [sig['id'] for sig in signatures if sig['id']]
@@ -223,30 +236,75 @@ class ProclaimFeed:
             if not item_id:
                 continue
             cached = self._items.get(item_id)
-            revision_changed = (
-                self._item_revisions.get(item_id) != sig['revision'] or cached is None
-            )
-            if revision_changed:
-                self._settling_until[item_id] = now + self.revision_settle_window
-            elif now >= self._settling_until.get(item_id, float('-inf')):
-                self._settling_until.pop(item_id, None)
-                continue
+            if cached is not None:
+                if self._item_revisions.get(item_id) != sig['revision']:
+                    max_revision = sig.get('max_revision')
+                    target = (
+                        dotnet_ticks_to_unix_seconds(max_revision)
+                        if max_revision is not None else None
+                    )
+                    self._awaiting[item_id] = (
+                        self._item_modified.get(item_id),
+                        target,
+                        now + self.revision_settle_timeout,
+                    )
+                elif item_id not in self._awaiting:
+                    continue
 
             try:
                 parsed = parse_item_original(self.db, item_id)
             except Exception as e:
                 logger.warning(f"Failed to parse item {item_id} from Proclaim DB: {e}; will retry")
-                continue
-            if not parsed:
-                continue
+                parsed = None
 
-            item = self._to_feed_item(parsed)
-            self._items[item_id] = item
-            self._item_revisions[item_id] = sig['revision']
-            if cached is None or cached.slides_hash != item.slides_hash:
-                logger.info(
-                    f"Synced item {item_id} ({parsed.title}) with {len(parsed.slides)} original slides"
-                )
+            modified_s = modified_to_unix_seconds(parsed.modified) if parsed else None
+            if parsed:
+                item = self._to_feed_item(parsed)
+                self._items[item_id] = item
+                self._item_revisions[item_id] = sig['revision']
+                self._item_modified[item_id] = modified_s
+                if cached is None or cached.slides_hash != item.slides_hash:
+                    logger.info(
+                        f"Synced item {item_id} ({parsed.title}) with {len(parsed.slides)} original slides"
+                    )
+
+            self._settle(item_id, modified_s, now)
+
+    def _settle(self, item_id: str, modified_s: Optional[int], now: float) -> None:
+        """Stop re-reading an edited item once its row shows the edit has landed, or at the
+        timeout.
+
+        Either of two things counts as the row having landed:
+
+        - **Modified changed** since the revision change was seen: a new write arrived.
+          This is the one that works for a title-slide toggle, where the row's Modified
+          came out about two seconds *before* the API's revision (Modified looks like
+          the moment of the edit, localRevision like the moment the slides were rebuilt),
+          so the comparison below never succeeds.
+        - **Modified ≥ the revision's second**: for text edits the two land in the same
+          second. This also covers a row that was written before we noticed the revision
+          change, when the "changed" check has nothing to compare against.
+
+        A row written before we noticed *and* stamped before the revision matches
+        neither, and waits out the timeout. That's slow, not wrong: every read is cached.
+        """
+        awaiting = self._awaiting.get(item_id)
+        if awaiting is None:
+            return
+        baseline, target, deadline = awaiting
+        changed = modified_s is not None and baseline is not None and modified_s != baseline
+        reached = modified_s is not None and target is not None and modified_s >= target
+        if changed or reached:
+            del self._awaiting[item_id]
+            reason = "its DB Modified changed" if changed else "its DB Modified reached its revision"
+            logger.debug(f"Item {item_id} settled: {reason}")
+        elif now >= deadline:
+            del self._awaiting[item_id]
+            logger.warning(
+                f"Item {item_id}: DB row showed no sign of the edit (Modified {modified_s}, "
+                f"was {baseline}, revision {target}) within {self.revision_settle_timeout}s; "
+                f"keeping the last read"
+            )
 
     def _to_feed_item(self, parsed) -> FeedItem:
         """Convert a parsed ServiceItemWithSlides into a FeedItem with hash + grounding."""

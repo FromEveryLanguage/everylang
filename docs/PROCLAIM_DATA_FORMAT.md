@@ -174,6 +174,11 @@ There may be multiple `<id>` directories; we use the one with the most recently 
 
 ### Tables
 
+The tables below list only the columns we read. Both tables have more: run
+`PRAGMA table_info(ServiceItems)` against a live DB to see the full set. `Presentations` also
+has `Modified`, `ModifiedUtc` and a `SyncRevision` counter, all per presentation rather than
+per item.
+
 #### `Presentations`
 
 | Column         | Type | Description                                    |
@@ -204,6 +209,39 @@ The `Content` JSON includes:
 | Title           | TEXT | Item title (e.g., "Call to Worship")                 |
 | ServiceItemKind | TEXT | One of: `SongLyrics`, `Content`, `BiblePassage`, `ImageSlideshow`, `Grouping` |
 | Content         | TEXT | JSON blob with item-specific data                    |
+| Modified        | TEXT | When the row was last written: ISO-8601 UTC, whole seconds (e.g. `"2026-11-16T22:11:40Z"`) |
+
+#### The DB lags the API, and `Modified` is how to tell it has caught up
+
+The API and the DB share no version number, and `Modified` and the API's per-slide
+`localRevision` are timestamps of *related* moments, not the same one. What we saw on
+2026-11-16 (Windows, Local Remote 1.4.0.0, by polling both every half second during edits to
+one song; see PR #194):
+
+- **The API moves first.** After an edit, the item's newest `localRevision` jumps while its
+  row still holds the old `Content`. The row can be read one to three seconds later. A single
+  DB read at the moment the revision moves can get the old `Content`.
+- **`Modified` is not when the row was written.** After a title-slide toggle the row carried
+  `Modified` 23:05:18, yet only became readable at 23:05:21. It looks like the time of the
+  edit itself.
+- **For a text edit, `Modified` is the revision's second** (twice: 22:11:40.574 →
+  `22:11:40Z`, and 22:39:34.737 → `22:39:34Z`). **For a title-slide toggle it is earlier:**
+  revision 23:05:19.898, `Modified` 23:05:18. The likely reason is that the revision is
+  stamped when the slides are rebuilt, and a change to the deck's structure takes longer to
+  rebuild. So "`Modified` ≥ revision" alone never fires for a toggle. `ProclaimFeed` accepts
+  *either* that or `Modified` simply changing from what it was when the revision moved, which
+  shows a new write arrived without comparing the two clocks.
+- **One edit can bump the revision twice**, about a second apart (22:11:39.275, then
+  22:11:40.574), before its single row write. So wait for the newest one.
+- **Revisions also move without any row being written.** On a presentation nobody had edited
+  for hours, 17 of 19 items carried a `localRevision` from within a few seconds of each other
+  (21:50:29–33, around when `Presentations.ModifiedUtc` was 21:50:33) while their `Modified`
+  dates were hours or weeks older. So never compare them on an item you are seeing for the
+  first time. Only compare them after a revision change you watched happen, and keep a timeout
+  in case the row never follows.
+
+Checked so far: two text edits and one title-slide toggle, all on the same song. An edit to a
+`Content` or `BiblePassage` item hasn't been watched yet.
 
 ### ServiceItem Content JSON
 

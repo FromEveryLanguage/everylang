@@ -15,6 +15,7 @@ import logging
 import sqlite3
 import unicodedata
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -41,6 +42,37 @@ class ServiceItemWithSlides:
     title: str
     slides: List[str]
     itemKind: str
+    # The row's ``Modified`` column as read (ISO-8601 UTC, whole seconds), or None. It is
+    # the evidence that the row has caught up with an edit the API already reported; see
+    # ``modified_to_unix_seconds``.
+    modified: Optional[str] = None
+
+
+# .NET ticks (100 ns since 0001-01-01) at the Unix epoch.
+_DOTNET_TICKS_AT_UNIX_EPOCH = 621355968000000000
+
+
+def dotnet_ticks_to_unix_seconds(ticks: int) -> int:
+    """Convert a Proclaim ``localRevision`` (.NET ticks) to whole Unix seconds, rounded down.
+
+    Rounded down because ``ServiceItems.Modified`` only has whole seconds: an edit whose
+    revision is 22:11:40.574 is written with Modified 22:11:40.
+    """
+    return (ticks - _DOTNET_TICKS_AT_UNIX_EPOCH) // 10_000_000
+
+
+def modified_to_unix_seconds(raw: Any) -> Optional[int]:
+    """Parse a ``ServiceItems.Modified`` value (e.g. ``"2026-11-16T22:11:40Z"``) to Unix
+    seconds, or None if it's missing or unparseable. A value with no offset is taken as UTC."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.strip())
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return int(parsed.timestamp())
 
 
 def find_presentation_db() -> str:
@@ -367,9 +399,12 @@ def parse_item_original(db: ProclaimDB, item_id: str) -> Optional[ServiceItemWit
     content = json.loads(service_item['Content'])
     item_kind = service_item.get('ServiceItemKind') or 'Unknown'
     item_title = service_item.get('Title') or 'Unknown'
+    modified = service_item.get('Modified')
 
     if is_blank_item(item_kind, item_title):
-        return ServiceItemWithSlides(itemId=item_id, title=item_title, slides=[''], itemKind=item_kind)
+        return ServiceItemWithSlides(
+            itemId=item_id, title=item_title, slides=[''], itemKind=item_kind, modified=modified
+        )
 
     main_key = MAIN_CONTENT_KEYS.get(item_kind)
     if not main_key or main_key not in content:
@@ -377,7 +412,9 @@ def parse_item_original(db: ProclaimDB, item_id: str) -> Optional[ServiceItemWit
         return None
 
     slides = _slides_from_source_xml(item_kind, content, content[main_key])
-    return ServiceItemWithSlides(itemId=item_id, title=item_title, slides=slides, itemKind=item_kind)
+    return ServiceItemWithSlides(
+        itemId=item_id, title=item_title, slides=slides, itemKind=item_kind, modified=modified
+    )
 
 
 def normalize_slide_text(text: str) -> str:
@@ -439,21 +476,25 @@ def slides_hash(slides: List[str]) -> str:
     return digest.hexdigest()
 
 
-def service_item_signatures(onair_presentation: dict) -> List[Dict[str, str]]:
+def service_item_signatures(onair_presentation: dict) -> List[Dict[str, Any]]:
     """Summarize the on-air service order with a per-item change signature.
 
     The signature combines the per-slide ``localRevision`` values Proclaim reports,
     so we can tell when an item's content changed without re-reading the DB.
+    ``max_revision`` is the newest of them (.NET ticks), or None if none is a number: it
+    is what the DB row's ``Modified`` has to reach before a re-read can be trusted.
     """
-    items: List[Dict[str, str]] = []
+    items: List[Dict[str, Any]] = []
     for item in onair_presentation.get('serviceItems', []):
         slides = item.get('slides', []) or []
-        revision = '|'.join(str(slide.get('localRevision', '')) for slide in slides)
+        revisions = [slide.get('localRevision', '') for slide in slides]
+        numeric = [r for r in revisions if isinstance(r, int) and not isinstance(r, bool)]
         items.append({
             'id': item.get('id', ''),
             'title': item.get('title', ''),
             'kind': item.get('kind', ''),
-            'revision': revision,
+            'revision': '|'.join(str(r) for r in revisions),
+            'max_revision': max(numeric) if numeric else None,
         })
     return items
 
