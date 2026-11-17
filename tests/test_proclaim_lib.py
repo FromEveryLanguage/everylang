@@ -7,6 +7,8 @@ import json
 import unicodedata
 
 from proclaim_lib import (
+    dotnet_ticks_to_unix_seconds,
+    modified_to_unix_seconds,
     parse_item_original,
     parse_item_translation,
     existing_translation_text,
@@ -152,6 +154,43 @@ def test_service_item_signatures_summarizes_order_and_revisions():
     assert [s['id'] for s in sigs] == ['i1', 'i2']
     assert sigs[0]['revision'] == '111|222'
     assert sigs[1]['revision'] == ''
+    assert sigs[0]['max_revision'] == 222
+    assert sigs[1]['max_revision'] is None
+
+
+def test_service_item_signatures_max_revision_ignores_non_numbers():
+    onair = {'serviceItems': [
+        {'id': 'i1', 'slides': [{'localRevision': 5}, {}, {'localRevision': 'x'}, {'localRevision': True}]},
+    ]}
+    assert service_item_signatures(onair)[0]['max_revision'] == 5
+
+
+def test_dotnet_ticks_to_unix_seconds_rounds_down_to_match_modified():
+    # Real pair from an edit on 2026-11-16: revision 22:11:40.574 was written as
+    # Modified "2026-11-16T22:11:40Z", so both have to land on the same second.
+    modified = modified_to_unix_seconds('2026-11-16T22:11:40Z')
+    revision = 621355968000000000 + (modified * 10_000_000) + 5_740_000  # + 0.574 s
+    assert dotnet_ticks_to_unix_seconds(revision) == modified
+    assert dotnet_ticks_to_unix_seconds(621355968000000000) == 0
+
+
+def test_modified_to_unix_seconds_variants():
+    assert modified_to_unix_seconds('1970-01-01T00:00:10Z') == 10
+    assert modified_to_unix_seconds('1970-01-01T00:00:10') == 10  # no offset: UTC
+    assert modified_to_unix_seconds('1970-01-01T01:00:10+01:00') == 10
+    assert modified_to_unix_seconds('') is None
+    assert modified_to_unix_seconds('not a time') is None
+    assert modified_to_unix_seconds(None) is None
+
+
+def test_parse_item_original_carries_the_rows_modified():
+    row = content_item(main_lines=['Hello'])
+    row['Modified'] = '2026-11-16T22:11:40Z'
+    blank = {'ServiceItemKind': 'ImageSlideshow', 'Title': 'Photos', 'Content': '{}',
+             'Modified': '2026-10-14T15:59:56Z'}
+    db = FakeDB({'item1': row, 'item2': blank})
+    assert parse_item_original(db, 'item1').modified == '2026-11-16T22:11:40Z'
+    assert parse_item_original(db, 'item2').modified == '2026-10-14T15:59:56Z'
 
 
 def test_build_seed_pairs_aligns_equal_length_lists():
