@@ -41,10 +41,11 @@ export default tseslint.config(
     },
   },
   {
-    // Backend TS files (server.ts, nlp.ts, live-audio/*) aren't part of any tsconfig project;
-    // disable type-aware rules and clear the project setting to avoid parse errors.
-    // TODO: sometime we should type-check these too.
-    files: ['*.ts', 'live-audio/**/*.ts'],
+    // The server files aren't part of either app tsconfig; the env generator is checked by
+    // tsconfig.server.json but isn't in the ESLint parser's configured projects.
+    // Disable type-aware rules for both and clear the project setting to avoid parse errors.
+    // TODO: sometime we should include the backend files in a tsconfig too.
+    files: ['*.ts', 'live-audio/**/*.ts', 'scripts/**/*.ts'],
     extends: [tseslint.configs.disableTypeChecked],
     languageOptions: {
       parserOptions: {
