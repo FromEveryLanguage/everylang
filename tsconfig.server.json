@@ -38,10 +38,10 @@
     "noUncheckedSideEffectImports": true
   },
   /*
-   * Entrypoints only — tsc follows imports from here, which is how the rest of the
-   * root .ts files, live-audio/, and the shared src/ modules get pulled in and checked
-   * under Node's resolution rules. The live-audio tests are listed because nothing
-   * imports them, and they were otherwise the only files in the repo no project checked.
+   * Entrypoints and standalone scripts — tsc follows imports from the entrypoints, which
+   * is how the rest of the root .ts files, live-audio/, and shared src/ modules get pulled
+   * in and checked under Node's resolution rules. The live-audio tests and env generator
+   * are listed because nothing imports them.
    */
   "include": [
     "server.ts",
@@ -50,6 +50,7 @@
     "slideLibrary.ts",
     "slideConversationStore.ts",
     "dump-docs.ts",
+    "scripts/generate-env-template.ts",
     "*.test.ts",
     "live-audio/*.test.ts"
   ]
