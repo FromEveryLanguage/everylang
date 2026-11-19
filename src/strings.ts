@@ -65,6 +65,7 @@ export interface AppStrings {
   retry: string;
   broadcast: string;
   startBroadcast: string;
+  stopBroadcast: string;
   listeners: string;
   activeTranslations: string;
   noActiveTranslations: string;
@@ -218,6 +219,7 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     retry: 'Retry',
     broadcast: 'Broadcast',
     startBroadcast: 'Start broadcasting',
+    stopBroadcast: 'Stop broadcasting',
     listeners: 'listeners',
     activeTranslations: 'Active translations',
     noActiveTranslations: 'None yet — listeners can request them',
@@ -362,6 +364,7 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     retry: 'Réessayer',
     broadcast: 'Diffusion',
     startBroadcast: 'Démarrer la diffusion',
+    stopBroadcast: 'Arrêter la diffusion',
     listeners: 'auditeurs',
     activeTranslations: 'Traductions actives',
     noActiveTranslations: 'Aucune pour l’instant— les auditeurs peuvent en demander',
@@ -506,6 +509,7 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     retry: 'Reintentar',
     broadcast: 'Transmisión',
     startBroadcast: 'Iniciar transmisión',
+    stopBroadcast: 'Detener transmisión',
     listeners: 'oyentes',
     activeTranslations: 'Traducciones activas',
     noActiveTranslations: 'Ninguna aún— los oyentes pueden solicitarlas',
@@ -650,6 +654,7 @@ export const strings: Record<SupportedLocale, AppStrings> = {
     retry: 'Reeseye',
     broadcast: 'Difizyon',
     startBroadcast: 'Kòmanse difizyon',
+    stopBroadcast: 'Sispann difizyon',
     listeners: 'moun k ap koute',
     activeTranslations: 'Tradiksyon aktif',
     noActiveTranslations: 'Pa gen okenn pou kounye a— moun k ap koute ka mande yo',
