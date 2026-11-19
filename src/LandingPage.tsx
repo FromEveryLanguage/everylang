@@ -70,7 +70,7 @@ export function LandingPage({ siteName, siteLanguages, sourceLanguage, hasNotes 
   );
   const slideLanguages = offers.filter((o) => o.slideLanguage);
   // The first language with translated notes, for the staff note-taker/broadcaster links.
-  const staffNotesLanguage = slideLanguages[0]?.slideLanguage ?? null;
+  const staffNotesCode = slideLanguages[0]?.code ?? null;
 
   if (showAll) {
     return (
@@ -119,7 +119,7 @@ export function LandingPage({ siteName, siteLanguages, sourceLanguage, hasNotes 
               {slideLanguages.map((o) => (
                 <a
                   key={o.code}
-                  href={hrefFor(`bilingual-${o.slideLanguage}`, o.code, pageLocale)}
+                  href={hrefFor(`bilingual-${o.code}`, o.code, pageLocale)}
                   lang={o.code}
                   className={linkClass}
                 >
@@ -134,10 +134,10 @@ export function LandingPage({ siteName, siteLanguages, sourceLanguage, hasNotes 
           <details>
             <summary className="cursor-pointer text-gray-500 dark:text-gray-400">{s.landingTeam}</summary>
             <nav className="mt-2 flex flex-col gap-1">
-              {staffNotesLanguage && (
+              {staffNotesCode && (
                 <>
-                  <a className={linkClass} href={`/sourceText|bilingual-${staffNotesLanguage}#editor`}>Note-Taker</a>
-                  <a className={linkClass} href={`/sourceText,broadcast|bilingual-${staffNotesLanguage}#editor`}>Broadcaster</a>
+                  <a className={linkClass} href={`/sourceText|bilingual-${staffNotesCode}#editor`}>Note-Taker</a>
+                  <a className={linkClass} href={`/sourceText,broadcast|bilingual-${staffNotesCode}#editor`}>Broadcaster</a>
                 </>
               )}
               <a className={linkClass} href="/slideReview#editor">{s.reviewSlidesLink}</a>

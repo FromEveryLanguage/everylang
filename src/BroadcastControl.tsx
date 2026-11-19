@@ -12,6 +12,7 @@ import { useAtom } from "jotai";
 import {
   LiveKitRoom,
   TrackToggle,
+  useRoomContext,
   useLocalParticipant,
   useRemoteParticipants,
   useTrackVolume,
@@ -73,14 +74,20 @@ function MicLevelMeter() {
 function BroadcastDashboard({
   docId,
   sourceLanguage,
+  onStop,
+  onStopError,
 }: {
   docId: string;
   sourceLanguage: string;
+  onStop: () => void;
+  onStopError: (message: string) => void;
 }) {
   const s = useStrings();
   const locale = resolveLocale();
+  const room = useRoomContext();
   const remoteParticipants = useRemoteParticipants();
   const [translations, setTranslations] = useState<TranslationInfo[]>([]);
+  const [stopping, setStopping] = useState(false);
 
   // Count human listeners, not translator bots.
   const listenerCount = remoteParticipants.filter(
@@ -108,6 +115,18 @@ function BroadcastDashboard({
     };
   }, [docId]);
 
+  const stop = async () => {
+    setStopping(true);
+    try {
+      await room.disconnect();
+      onStop();
+    } catch (error) {
+      onStopError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setStopping(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-3 flex-1 min-h-0">
       <div className="flex items-center justify-between gap-2">
@@ -118,6 +137,14 @@ function BroadcastDashboard({
         <span className="text-xs text-gray-600 dark:text-gray-300">
           {listenerCount} {s.listeners}
         </span>
+        <button
+          type="button"
+          disabled={stopping}
+          className="px-3 py-1.5 rounded bg-red-500 text-white text-sm hover:bg-red-600 disabled:opacity-60"
+          onClick={() => void stop()}
+        >
+          {stopping ? s.connecting : s.stopBroadcast}
+        </button>
       </div>
       <MicLevelMeter />
       <div className="flex items-center">
@@ -288,7 +315,12 @@ export function BroadcastControl() {
       onError={(e) => setError(e.message)}
       className="flex flex-col flex-1 min-h-0"
     >
-      <BroadcastDashboard docId={docId} sourceLanguage={spokenLanguage} />
+      <BroadcastDashboard
+        docId={docId}
+        sourceLanguage={spokenLanguage}
+        onStop={() => setConn(null)}
+        onStopError={setError}
+      />
     </LiveKitRoom>
   );
 }

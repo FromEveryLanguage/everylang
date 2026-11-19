@@ -25,8 +25,8 @@ describe('LandingPage', () => {
   it('routes each card by what its language can do, with that language as the UI locale', () => {
     render(<LandingPage {...ncf} />);
     expect(cardHref('English')).toBe('/listen-en');
-    expect(cardHref('Français')).toBe('/slideTranslation-French,listen-fr?locale=fr');
-    expect(cardHref('Kreyòl ayisyen')).toBe('/slideTranslation-Haitian Creole,listen-fr?locale=ht');
+    expect(cardHref('Français')).toBe('/slideTranslation-fr,listen-fr?locale=fr');
+    expect(cardHref('Kreyòl ayisyen')).toBe('/slideTranslation-ht,listen-fr?locale=ht');
   });
 
   it("says on the Kreyòl card, in Kreyòl, that the audio is someone else's language", () => {
@@ -41,7 +41,7 @@ describe('LandingPage', () => {
     rerender(<LandingPage {...ncf} hasNotes />);
     expect(screen.getByText('Sermon notes')).toBeTruthy();
     expect(screen.getAllByText('Français').map((el) => el.closest('a')!.getAttribute('href'))).toContain(
-      '/bilingual-French?locale=fr',
+      '/bilingual-fr?locale=fr',
     );
   });
 
