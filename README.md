@@ -71,6 +71,11 @@ docker compose down
 
 Environment variables are loaded from `.env` automatically.
 
+`envConfig.ts` is the source of truth for application environment variables. When adding
+one, declare its name, requirement/default, and description there, update the code that
+consumes it, then run `npm run env:generate` to refresh `template-.env`. Run
+`npm run env:check` to verify the generated template is up to date.
+
 ## Project Details
 
 This is a live translation application for presentations/talks. It provides:
