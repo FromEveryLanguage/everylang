@@ -264,8 +264,8 @@ The app uses **Yjs** for real-time collaborative state management:
    - `slideConversations` (Y.Map), `status` (Y.Map): the slide Q&A panel, and per-service status
      reporting (e.g. the Proclaim service's `proclaimService` entry)
 
-   Note the two language namespaces: notes/slides use display names (`French`), live-audio
-   transcripts use BCP-47 codes (`fr`).
+   Translation data and cache keys use display names (`French`); language-specific pane URLs
+   and live-audio transcripts use BCP-47 codes (`fr`).
 
    **English is not privileged in the live-audio path.** The spoken language is a per-session
    value: the broadcaster declares it in the broadcast pane, which writes it to
@@ -535,7 +535,7 @@ Details in [docs/PROCLAIM_SERVICE_SETUP.md](docs/PROCLAIM_SERVICE_SETUP.md#autom
 
 The UI uses a **URL-based layout system** (`PagePart` in [App.tsx](src/App.tsx) resolves each name):
 
-- Layouts are encoded in the URL path: `/sourceText|bilingual-French`
+- Layouts are encoded in the URL path: `/sourceText|bilingual-fr`
 - Format: **`|` separates columns, `,` stacks panes within a column.** On a wide screen the
   `|` groups sit side by side (`flex-row`) and each group's `,` members stack (`flex-col`);
   narrow screens stack the columns too. `parseLayoutString` in `App.tsx` is the definition;
@@ -543,18 +543,19 @@ The UI uses a **URL-based layout system** (`PagePart` in [App.tsx](src/App.tsx) 
 - Components (the authoritative list is the `PagePart` branch chain in `App.tsx`; this is a
   summary and can fall behind it):
   - `sourceText` — the block editor + translation controls
-  - `translatedText-{language}` — translation only
-  - `bilingual-{language}` — original + translation
-  - `currentSlide`, `slideTranslation-{language}` — the live Proclaim slide, untranslated / translated
+  - `translatedText-{code}` — translation only
+  - `bilingual-{code}` — original + translation
+  - `currentSlide`, `slideTranslation-{code}` — the live Proclaim slide, untranslated / translated
   - `slideReview` — pre-service review of slide translations
   - `listen-{bcp47Code}` — live speech translation for a listener (audio + transcript)
   - `broadcast` — the speaker's mic/broadcast pane (editors only)
   - `status` — the service status dashboard
-- Note the two namespaces: the text components take a display name (`French`), `listen-` takes a
-  BCP-47 code (`fr`) from the larger Gemini Live set ([listenLanguages.ts](src/listenLanguages.ts))
+- Language-specific pane URLs use BCP-47 codes; translation data and cache keys still use the
+  configured display names. `listen-` supports the larger Gemini Live set
+  ([listenLanguages.ts](src/listenLanguages.ts)).
 - Language selection in translated views updates the URL dynamically
 - Editor mode is triggered by `#editor` hash in URL
-- Example with Proclaim: `/translatedText-French|currentSlide` puts the translation and the current slide side by side; `/translatedText-French,currentSlide` stacks them in one column
+- Example with Proclaim: `/translatedText-fr|currentSlide` puts the translation and the current slide side by side; `/translatedText-fr,currentSlide` stacks them in one column
 - Unknown names render a "Unknown component" card rather than failing the page
 
 ### Editor vs Viewer Mode

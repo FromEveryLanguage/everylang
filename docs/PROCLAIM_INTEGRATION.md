@@ -85,7 +85,7 @@ Navigate to a layout that includes `currentSlide`:
 
 ```
 http://localhost:8000/currentSlide
-http://localhost:8000/translatedText-French,currentSlide
+http://localhost:8000/translatedText-fr,currentSlide
 ```
 
 ## How It Works
@@ -172,4 +172,3 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 ```
-

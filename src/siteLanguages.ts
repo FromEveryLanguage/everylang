@@ -48,15 +48,20 @@ export interface LanguageOffer {
   isSource: boolean;
 }
 
-/** The slide-translation name for a code, or null if slides aren't translated into it. */
-export function slideLanguageFor(code: string): string | null {
+/** The configured translation name for a code, or null if it is not a target language. */
+export function translationLanguageNameForCode(code: string): string | null {
   const entry = Object.entries(LANGUAGE_BCP47).find(([, c]) => c === code);
   return entry ? entry[0] : null;
 }
 
+/** URL slugs use language codes; translation data continues to use configured names. */
+export function translationLanguageCode(language: string): string {
+  return LANGUAGE_BCP47[language] ?? language;
+}
+
 /** Whether the landing page can offer this code at all. */
 export function isOfferable(code: string): boolean {
-  return isListenLanguage(code) || slideLanguageFor(code) !== null;
+  return isListenLanguage(code) || translationLanguageNameForCode(code) !== null;
 }
 
 /**
@@ -84,7 +89,7 @@ export function parseSiteLanguages(raw: string | undefined, fallback: readonly s
 
 /** Where a language's card goes, derived from what the language can do. */
 export function languageOffer(code: string, sourceLanguage: string): LanguageOffer {
-  const slideLanguage = slideLanguageFor(code);
+  const slideLanguage = translationLanguageNameForCode(code);
   const isSource = code === sourceLanguage;
   // The spoken language reads its own transcript; the slides are presumably already in it.
   if (isSource) {
@@ -97,7 +102,7 @@ export function languageOffer(code: string, sourceLanguage: string): LanguageOff
     audioIsStandIn = true;
   }
   const panes = [
-    slideLanguage ? `slideTranslation-${slideLanguage}` : null,
+    slideLanguage ? `slideTranslation-${code}` : null,
     listenCode ? `listen-${listenCode}` : null,
   ].filter((p): p is string => p !== null);
   return { code, layout: panes.join(','), listenCode, slideLanguage, audioIsStandIn, isSource };
